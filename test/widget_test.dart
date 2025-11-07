@@ -1,31 +1,73 @@
-// This is a basic Flutter widget test.
-
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+import 'dart:async';
+import 'dart:io'; 
 
 import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/date_symbol_data_local.dart'; 
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:nuzum_tracker/services/background_service.dart';
+import 'package:nuzum_tracker/screens/setup_screen.dart';
+import 'package:nuzum_tracker/screens/tracking_screen.dart';
 
-import 'package:nuzum_tracker/main.dart';
+import 'package:nuzum_tracker/services/api_service.dart';
 
-void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+  
+  HttpOverrides.global = MyHttpOverrides(); 
+  await initializeDateFormatting('ar', null);
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+  await initializeService();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
-  });
+  final prefs = await SharedPreferences.getInstance();
+  final bool isConfigured = prefs.getString('jobNumber') != null;
+
+  runApp(MyApp(isConfigured: isConfigured));
 }
 
+
+
+
+
+
+
+
+class MyApp extends StatelessWidget {
+  final bool isConfigured;
+
+  const MyApp({super.key, required this.isConfigured});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Nuzum Tracker',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        useMaterial3: true,
+        scaffoldBackgroundColor: const Color(0xFFF0F2F5),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black,
+          elevation: 1,
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8.0),
+          ),
+          filled: true,
+          fillColor: Colors.white,
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8.0),
+            ),
+          ),
+        ),
+      ),
+      debugShowCheckedModeBanner: false,
+      home: isConfigured ? const TrackingScreen() : const SetupScreen(),
+    );
+  }
+}
