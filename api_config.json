@@ -1,0 +1,52 @@
+{
+  "api_configuration": {
+    "base_url": "https://d72f2aef-918c-4148-9723-15870f8c7cf6-00-2c1ygyxvqoldk.riker.replit.dev",
+    "endpoint": "/api/external/employee-location",
+    "full_url": "https://d72f2aef-918c-4148-9723-15870f8c7cf6-00-2c1ygyxvqoldk.riker.replit.dev/api/external/employee-location",
+    "method": "POST",
+    "default_api_key": "test_location_key_2025"
+  },
+  "request_format": {
+    "headers": {
+      "Content-Type": "application/json; charset=UTF-8"
+    },
+    "body": {
+      "api_key": "string (required)",
+      "job_number": "string (required)",
+      "latitude": "number (required)",
+      "longitude": "number (required)",
+      "accuracy": "number (optional)",
+      "recorded_at": "string (ISO 8601 format: yyyy-MM-dd'T'HH:mm:ss'Z') (required)"
+    }
+  },
+  "example_request": {
+    "api_key": "test_location_key_2025",
+    "job_number": "12345",
+    "latitude": 24.7136,
+    "longitude": 46.6753,
+    "accuracy": 10.5,
+    "recorded_at": "2025-01-27T10:30:00Z"
+  },
+  "response": {
+    "success": {
+      "status_code": 200,
+      "description": "Location sent successfully"
+    },
+    "failure": {
+      "status_code": "non-200",
+      "description": "Failed to send location"
+    }
+  },
+  "service_settings": {
+    "update_interval": "1 minute",
+    "location_accuracy": "medium",
+    "notification_channel_id": "nuzum_tracker_foreground",
+    "notification_id": 888
+  },
+  "storage_keys": {
+    "job_number": "jobNumber",
+    "api_key": "apiKey",
+    "disclaimer_accepted": "disclaimerAccepted"
+  }
+}
+
