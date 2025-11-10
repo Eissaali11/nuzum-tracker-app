@@ -11,6 +11,10 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Required for Android 12+ (API 31+) when using foreground service with location -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <!-- Required for Android 13+ (API 33+) to show notifications -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Optional but recommended permissions for service stability -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -18,7 +22,8 @@
     <application
         android:label="nuzum_tracker"
         android:name=".MyApplication"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:enableOnBackInvokedCallback="true">
         
         <activity
             android:name=".MainActivity"
@@ -46,30 +51,10 @@
         
         <!-- 
           ==============================================================
-          SECTION 2: BACKGROUND SERVICE CONFIGURATION
+          SECTION 2: WORKMANAGER CONFIGURATION
           ==============================================================
-          This is the correct configuration for the flutter_background_service package.
+          WorkManager is used for background location tracking on Android 15+
         -->
-        <service
-            android:name="id.flutter.flutter_background_service.FlutterBackgroundService"
-            android:foregroundServiceType="location" />
-
-        <meta-data
-            android:name="flutter_background_service.notification_channel_id"
-            android:value="nuzum_tracker_foreground" />
-
-        <meta-data
-            android:name="flutter_background_service.notification_channel_name"
-            android:value="Nuzum Tracker Service" />
-
-        <meta-data
-            android:name="flutter_background_service.notification_channel_description"
-            android:value="This channel is used for location tracking service." />
-
-        <meta-data
-            android:name="flutter_background_service.notification_icon"
-            android:resource="@drawable/ic_bg_service_small" />
-        <!-- IMPORTANT: Ensure a file named 'ic_bg_service_small.png' exists in 'android/app/src/main/res/drawable/' -->
 
     </application>
 

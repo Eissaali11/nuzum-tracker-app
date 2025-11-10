@@ -1,10 +1,10 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:nuzum_tracker/services/background_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'tracking_screen.dart';
+import 'main_navigation_screen.dart';
 
 class SetupScreen extends StatefulWidget {
   const SetupScreen({super.key});
@@ -36,15 +36,12 @@ class _SetupScreenState extends State<SetupScreen> {
       await prefs.setString('jobNumber', _jobNumberController.text);
       await prefs.setString('apiKey', _apiKeyController.text);
 
-      final service = FlutterBackgroundService();
-      bool isRunning = await service.isRunning();
-      if (!isRunning) {
-        service.startService();
-      }
+      // بدء تتبع الموقع
+      await startLocationTracking();
 
       if (mounted) {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const TrackingScreen()),
+          MaterialPageRoute(builder: (context) => const MainNavigationScreen()),
         );
       }
     } catch (e) {

@@ -17,7 +17,7 @@ class MyHttpOverrides extends HttpOverrides {
 
 class ApiService {
   static const String _apiUrl =
-      'https://d72f2aef-918c-4148-9723-15870f8c7cf6-00-2c1ygyxvqoldk.riker.replit.dev/api/external/employee-location';
+      'https://eissahr.replit.app/api/external/employee-location';
   static Future<bool> sendLocation({
     required String apiKey,
     required String jobNumber,

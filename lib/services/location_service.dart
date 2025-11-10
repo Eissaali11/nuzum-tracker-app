@@ -1,41 +1,30 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// ============================================
-/// 🔒 تجاوز SSL - HTTP Overrides
-/// ============================================
-class MyHttpOverrides extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    return super.createHttpClient(context)
-      ..badCertificateCallback =
-          (X509Certificate cert, String host, int port) => true;
-  }
-}
+import 'auth_service.dart';
 
 /// ============================================
 /// 🔧 إعدادات الربط - API Configuration
 /// ============================================
 class ApiConfig {
-  // الدومين الأساسي (URL الصحيح الذي يعمل)
-  static const String primaryDomain = 'https://d72f2aef-918c-4148-9723-15870f8c7cf6-00-2c1ygyxvqoldk.riker.replit.dev';
+  // الدومين الأساسي - تم التحديث لاستخدام baseUrl الجديد
+  static const String primaryDomain = 'https://eissahr.replit.app';
 
   // الدومين البديل (احتياطي)
-  static const String backupDomain = 'https://eissahr.replit.app';
+  static const String backupDomain = 'https://d72f2aef-918c-4148-9723-15870f8c7cf6-00-2c1ygyxvqoldk.riker.replit.dev';
 
   // مفتاح API
   static const String apiKey = 'test_location_key_2025';
 
-  // مسار API
+  // مسار API - يستخدم /api/external/ (غير متوفر في v1)
   static const String apiPath = '/api/external/employee-location';
   
-  // مسار API لحالة التوقف
+  // مسار API لحالة التوقف - يستخدم /api/external/ (غير متوفر في v1)
   static const String statusPath = '/api/external/employee-status';
 
   // الحصول على URL الكامل
@@ -88,6 +77,10 @@ class LocationData {
   final DateTime recordedAt;
   final String? employeeName;
   final String? employeeId;
+  final double? speed; // السرعة بالكم/ساعة
+  final double? heading; // الاتجاه بالدرجات
+  final double? distanceFromPrevious; // المسافة من الموقع السابق بالأمتار
+  final Duration? stopDuration; // مدة التوقف في هذا الموقع
 
   LocationData({
     required this.jobNumber,
@@ -97,10 +90,14 @@ class LocationData {
     required this.recordedAt,
     this.employeeName,
     this.employeeId,
+    this.speed,
+    this.heading,
+    this.distanceFromPrevious,
+    this.stopDuration,
   });
 
   Map<String, dynamic> toJson({String? apiKey}) {
-    return {
+    final json = {
       'api_key': apiKey ?? ApiConfig.apiKey,
       'job_number': jobNumber,
       'latitude': latitude,
@@ -108,6 +105,26 @@ class LocationData {
       'accuracy': accuracy,
       'recorded_at': DateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'").format(recordedAt.toUtc()),
     };
+    
+    // إضافة تفاصيل التنقل إذا كانت متوفرة
+    if (speed != null) {
+      json['speed'] = speed;
+    }
+    if (heading != null) {
+      json['heading'] = heading;
+    }
+    if (distanceFromPrevious != null) {
+      json['distance_from_previous'] = distanceFromPrevious;
+    }
+    if (stopDuration != null) {
+      final duration = stopDuration!;
+      json['stop_duration_seconds'] = duration.inSeconds;
+      json['stop_duration_minutes'] = duration.inMinutes;
+      json['stop_duration_hours'] = duration.inHours;
+      json['stop_duration_days'] = duration.inDays;
+    }
+    
+    return json;
   }
 
   factory LocationData.fromJson(Map<String, dynamic> json) {
@@ -119,6 +136,12 @@ class LocationData {
       recordedAt: DateTime.parse(json['recorded_at'] ?? DateTime.now().toIso8601String()),
       employeeName: json['employee_name'],
       employeeId: json['employee_id'],
+      speed: json['speed']?.toDouble(),
+      heading: json['heading']?.toDouble(),
+      distanceFromPrevious: json['distance_from_previous']?.toDouble(),
+      stopDuration: json['stop_duration_seconds'] != null 
+          ? Duration(seconds: json['stop_duration_seconds'] as int)
+          : null,
     );
   }
 }
@@ -131,12 +154,14 @@ class PendingLocation {
   final LocationData locationData;
   final DateTime createdAt;
   final int retryCount;
+  final bool isOffline; // تم الحفظ أثناء عدم وجود شبكة
 
   PendingLocation({
     required this.id,
     required this.locationData,
     required this.createdAt,
     this.retryCount = 0,
+    this.isOffline = false,
   });
 
   Map<String, dynamic> toJson() {
@@ -145,6 +170,7 @@ class PendingLocation {
       'location_data': locationData.toJson(),
       'created_at': createdAt.toIso8601String(),
       'retry_count': retryCount,
+      'is_offline': isOffline,
     };
   }
 
@@ -154,6 +180,7 @@ class PendingLocation {
       locationData: LocationData.fromJson(json['location_data']),
       createdAt: DateTime.parse(json['created_at']),
       retryCount: json['retry_count'] ?? 0,
+      isOffline: json['is_offline'] ?? false,
     );
   }
 }
@@ -212,11 +239,32 @@ class LocationApiService {
 
       final url = useBackup ? ApiConfig.getBackupUrl() : ApiConfig.getPrimaryUrl();
       debugPrint('📤 [SEND] Sending location to: $url');
+      debugPrint('📍 [SEND] Primary URL: ${ApiConfig.getPrimaryUrl()}');
+      debugPrint('📍 [SEND] Backup URL: ${ApiConfig.getBackupUrl()}');
+      debugPrint('📍 [SEND] Using: ${useBackup ? "BACKUP" : "PRIMARY"}');
+
+      // الحصول على headers مع token إذا كان متوفراً
+      final headers = <String, String>{
+        'Content-Type': 'application/json; charset=UTF-8',
+      };
+      
+      // إضافة token إذا كان متوفراً (لكن لا نعتمد عليه فقط)
+      try {
+        final token = await AuthService.getValidToken();
+        if (token != null && token.isNotEmpty) {
+          headers['Authorization'] = 'Bearer $token';
+          debugPrint('🔑 [SEND] Token added to request');
+        } else {
+          debugPrint('⚠️ [SEND] No valid token available, using api_key only');
+        }
+      } catch (e) {
+        debugPrint('⚠️ [SEND] Could not get token: $e, using api_key only');
+      }
 
       final response = await http
           .post(
             Uri.parse(url),
-            headers: {'Content-Type': 'application/json; charset=UTF-8'},
+            headers: headers,
             body: jsonEncode(locationData.toJson(apiKey: apiKey)),
           )
           .timeout(
@@ -226,6 +274,38 @@ class LocationApiService {
               throw TimeoutException('Request timeout', _timeoutDuration);
             },
           );
+
+      // التعامل مع 401 (Unauthorized) - قد يكون token منتهي
+      if (response.statusCode == 401) {
+        debugPrint('⚠️ [SEND] Received 401, token may be expired');
+        // محاولة إرسال بدون token (استخدام api_key فقط)
+        try {
+          final retryHeaders = <String, String>{
+            'Content-Type': 'application/json; charset=UTF-8',
+          };
+          final retryResponse = await http
+              .post(
+                Uri.parse(url),
+                headers: retryHeaders,
+                body: jsonEncode(locationData.toJson(apiKey: apiKey)),
+              )
+              .timeout(_timeoutDuration);
+          
+          if (retryResponse.statusCode == 200 || retryResponse.statusCode == 201) {
+            debugPrint('✅ [SEND] Location sent successfully (without token)');
+            return LocationResponse.success(
+              locationData,
+              'تم إرسال الموقع بنجاح',
+            );
+          }
+        } catch (e) {
+          debugPrint('❌ [SEND] Retry without token also failed: $e');
+        }
+        
+        final error = 'فشل الإرسال: ${response.statusCode} - ${response.body}';
+        debugPrint('❌ [SEND] $error');
+        return LocationResponse.error(error);
+      }
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         try {
@@ -315,6 +395,11 @@ class LocationApiService {
     required double latitude,
     required double longitude,
     double? accuracy,
+    double? speed,
+    double? heading,
+    double? distanceFromPrevious,
+    Duration? stopDuration,
+    bool isOffline = true,
   }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -328,17 +413,28 @@ class LocationApiService {
           longitude: longitude,
           accuracy: accuracy,
           recordedAt: DateTime.now(),
+          speed: speed,
+          heading: heading,
+          distanceFromPrevious: distanceFromPrevious,
+          stopDuration: stopDuration,
         ),
         createdAt: DateTime.now(),
         retryCount: 0,
+        isOffline: isOffline,
       );
 
       pendingList.add(pendingLocation);
 
+      // حفظ حتى 1000 موقع محلياً (لمنع استهلاك الذاكرة)
+      if (pendingList.length > 1000) {
+        pendingList.removeRange(0, pendingList.length - 1000);
+        debugPrint('⚠️ [SAVE] Pending locations limit reached, removing oldest entries');
+      }
+
       final jsonList = pendingList.map((p) => p.toJson()).toList();
       await prefs.setString(_pendingLocationsKey, jsonEncode(jsonList));
 
-      debugPrint('✅ [SAVE] Location saved locally (ID: ${pendingLocation.id})');
+      debugPrint('✅ [SAVE] Location saved locally (ID: ${pendingLocation.id}, Total: ${pendingList.length})');
     } catch (e) {
       debugPrint('❌ [SAVE] Error saving location: $e');
     }
@@ -421,6 +517,7 @@ class LocationApiService {
           longitude: pending.locationData.longitude,
           accuracy: pending.locationData.accuracy,
           useBackup: true,
+          apiKey: null, // سيتم استخدام apiKey من SharedPreferences
         );
 
         if (backupResponse.success) {
@@ -603,9 +700,9 @@ Future<void> example1_SimpleSend() async {
   );
 
   if (response.success) {
-    print('✅ تم الإرسال: ${response.data?.employeeName}');
+    debugPrint('✅ تم الإرسال: ${response.data?.employeeName}');
   } else {
-    print('❌ فشل الإرسال: ${response.error}');
+    debugPrint('❌ فشل الإرسال: ${response.error}');
   }
 }
 
@@ -620,9 +717,9 @@ Future<void> example2_SendWithRetry() async {
   );
 
   if (response.success) {
-    print('✅ تم الإرسال بنجاح!');
+    debugPrint('✅ تم الإرسال بنجاح!');
   } else {
-    print('⚠️ ${response.error}');
+    debugPrint('⚠️ ${response.error}');
   }
 }
 
@@ -631,39 +728,39 @@ Future<void> example2_SendWithRetry() async {
 Future<void> example3_TestConnection() async {
   // اختبار الدومين الأساسي
   final primaryOk = await LocationApiService.testConnection(useBackup: false);
-  print('الدومين الأساسي: ${primaryOk ? "✅ متصل" : "❌ غير متصل"}');
+  debugPrint('الدومين الأساسي: ${primaryOk ? "✅ متصل" : "❌ غير متصل"}');
 
   // اختبار الدومين البديل
   final backupOk = await LocationApiService.testConnection(useBackup: true);
-  print('الدومين البديل: ${backupOk ? "✅ متصل" : "❌ غير متصل"}');
+  debugPrint('الدومين البديل: ${backupOk ? "✅ متصل" : "❌ غير متصل"}');
 }
 
 /// مثال 4: إعادة إرسال المواقع المعلقة
 /// Retry pending locations example
 Future<void> example4_RetryPending() async {
   final result = await LocationApiService.retryPendingLocations();
-  print('📊 النتيجة:');
-  print('  - تم الإرسال: ${result['sent']}');
-  print('  - فشل: ${result['failed']}');
-  print('  - المجموع: ${result['total']}');
-  print('  - الرسالة: ${result['message']}');
+  debugPrint('📊 النتيجة:');
+  debugPrint('  - تم الإرسال: ${result['sent']}');
+  debugPrint('  - فشل: ${result['failed']}');
+  debugPrint('  - المجموع: ${result['total']}');
+  debugPrint('  - الرسالة: ${result['message']}');
 }
 
 /// مثال 5: فحص المواقع المعلقة
 /// Check pending locations example
 Future<void> example5_CheckPending() async {
   final count = await LocationApiService.getPendingCount();
-  print('📋 عدد المواقع المعلقة: $count');
+  debugPrint('📋 عدد المواقع المعلقة: $count');
 
   if (count > 0) {
     final pendingList = await LocationApiService.getPendingLocations();
-    print('📝 المواقع المعلقة:');
+    debugPrint('📝 المواقع المعلقة:');
     for (final pending in pendingList) {
-      print('  - ID: ${pending.id}');
-      print('    Job: ${pending.locationData.jobNumber}');
-      print('    Location: ${pending.locationData.latitude}, ${pending.locationData.longitude}');
-      print('    Retries: ${pending.retryCount}');
-      print('    Created: ${pending.createdAt}');
+      debugPrint('  - ID: ${pending.id}');
+      debugPrint('    Job: ${pending.locationData.jobNumber}');
+      debugPrint('    Location: ${pending.locationData.latitude}, ${pending.locationData.longitude}');
+      debugPrint('    Retries: ${pending.retryCount}');
+      debugPrint('    Created: ${pending.createdAt}');
     }
   }
 }

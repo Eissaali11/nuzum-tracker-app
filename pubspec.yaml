@@ -35,16 +35,40 @@ dependencies:
   http: ^1.2.1 
   
   # لتخزين الرقم الوظيفي والمفتاح بشكل دائم
-  shared_preferences: ^2.2.3 
+  shared_preferences: ^2.2.3
+  
+  # لتخزين التوكن بشكل آمن
+  flutter_secure_storage: ^9.2.4 
   
   # للوصول إلى موقع GPS للجهاز
   location: ^6.0.2 
   geolocator: ^12.0.0
   
-  # لتشغيل المهام في الخلفية بشكل موثوق
-  flutter_background_service: ^5.0.1 
+  # استخدام geolocator مباشرة مع Timer (يدعم Android 15 بشكل أفضل) 
 
-  intl: ^0.19.0
+  intl: ^0.20.2
+  
+  # خطوط عربية أنيقة - Cairo
+  google_fonts: ^6.2.1
+  
+  # للدعم الكامل للغة العربية في DatePicker وغيرها
+  flutter_localizations:
+    sdk: flutter
+  
+  # للطلبات HTTP المتقدمة مع progress tracking
+  dio: ^5.9.0
+  
+  # لالتقاط الصور والفيديوهات
+  image_picker: ^1.2.0
+  
+  # لضغط الصور
+  flutter_image_compress: ^2.3.0
+  
+  # لتشغيل الفيديوهات
+  video_player: ^2.10.0
+  
+  # لعرض PDF
+  url_launcher: ^6.3.2
   
   # The following adds the Cupertino Icons font to your application.
   cupertino_icons: ^1.0.8

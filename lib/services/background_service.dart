@@ -1,225 +1,629 @@
 import 'dart:async';
-import 'dart:io';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 import 'package:nuzum_tracker/services/location_service.dart';
+import 'package:nuzum_tracker/services/auth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/services.dart';
 
 // -----------------------------------------------------------------------------
-// تهيئة الخدمة
+// تهيئة الخدمة (لا حاجة لـ workmanager)
 // -----------------------------------------------------------------------------
 Future<void> initializeService() async {
-  final service = FlutterBackgroundService();
-
-  await service.configure(
-    androidConfiguration: AndroidConfiguration(
-      onStart: onStart,
-      isForegroundMode: true,
-      autoStart: true,
-      notificationChannelId: 'nuzum_tracker_foreground',
-      initialNotificationTitle: 'Nuzum Tracker',
-      initialNotificationContent: 'خدمة التتبع نشطة',
-      foregroundServiceNotificationId: 888,
-    ),
-    iosConfiguration: IosConfiguration(
-      autoStart: true,
-      onForeground: onStart,
-      onBackground: onIosBackground,
-    ),
-  );
+  try {
+    debugPrint(
+      '✅ [Service] Service initialization (using geolocator directly)',
+    );
+  } catch (e, stackTrace) {
+    debugPrint('❌ [Service] Error initializing service: $e');
+    debugPrint('❌ [Service] Stack trace: $stackTrace');
+    rethrow;
+  }
 }
 
 // -----------------------------------------------------------------------------
-// نقطة الدخول الخاصة بأنظمة iOS
+// متغيرات عامة للتتبع
 // -----------------------------------------------------------------------------
-@pragma('vm:entry-point')
-Future<bool> onIosBackground(ServiceInstance service) async {
-  WidgetsFlutterBinding.ensureInitialized();
-  DartPluginRegistrant.ensureInitialized();
-  return true;
-}
+Timer? _locationTimer;
+Timer? _healthCheckTimer; // Timer للتحقق من استمرار التتبع
+Timer? _networkCheckTimer; // Timer للتحقق من الاتصال وإرسال البيانات المحفوظة
+StreamSubscription<Position>? _positionStreamSubscription;
+Position? _lastPosition;
+double? _currentSpeed;
+double? _currentHeading;
+double? _totalDistance; // إجمالي المسافة المقطوعة
+DateTime? _lastSuccessfulUpdate;
+List<Position> _trackedPositions = []; // قائمة بجميع المواقع المتتبعة
+
+// متغيرات لتتبع فترة التوقف
+DateTime? _stopStartTime; // وقت بدء التوقف
+Position? _stopPosition; // موقع التوقف
+double _stopDistanceThreshold = 50.0; // المسافة بالأمتار لتحديد التوقف (50 متر)
+Duration _stopTimeThreshold = const Duration(minutes: 2); // الوقت الأدنى للتوقف (دقيقتان)
 
 // -----------------------------------------------------------------------------
-// نقطة الدخول الرئيسية ومنطق الخدمة الخلفية
+// بدء تتبع الموقع
 // -----------------------------------------------------------------------------
-@pragma('vm:entry-point')
-void onStart(ServiceInstance service) async {
-  DartPluginRegistrant.ensureInitialized();
+Future<void> startLocationTracking() async {
+  try {
+    // التحقق من الأذونات
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      debugPrint("❌ [Tracking] Location services are disabled.");
+      return;
+    }
 
-  await initializeDateFormatting('ar', null);
-  HttpOverrides.global = MyHttpOverrides();
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      debugPrint("❌ [Tracking] Location permissions are denied.");
+      return;
+    }
 
-  Timer? timer;
-  String? lastUpdate;
+    if (permission == LocationPermission.deniedForever) {
+      debugPrint("❌ [Tracking] Location permissions are permanently denied.");
+      return;
+    }
 
-  Future<void> performLocationUpdate() async {
+    // إيقاف أي تتبع سابق
+    await stopLocationTracking();
+
+    // بدء تتبع الموقع المستمر
+    debugPrint("🌍 [Tracking] Starting continuous location tracking...");
+
+    // طلب Wake Lock لمنع النظام من إيقاف التطبيق
     try {
-      // --- ⬇️⬇️ بداية الكود الجديد باستخدام Geolocator ⬇️⬇️ ---
+      await _requestWakeLock();
+    } catch (e) {
+      debugPrint('⚠️ [Tracking] Could not acquire wake lock: $e');
+    }
 
-      // 1. التحقق من أن خدمة الموقع (GPS) مفعلة على الجهاز
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        debugPrint("❌ [BG Service] Location services are disabled.");
-        lastUpdate = 'خطأ: الرجاء تفعيل خدمة الموقع (GPS)';
-        service.invoke('update', {'lastUpdate': lastUpdate!});
-        return;
-      }
+    // طلب Battery Optimization exemption
+    try {
+      await _requestBatteryOptimizationExemption();
+    } catch (e) {
+      debugPrint('⚠️ [Tracking] Could not request battery optimization exemption: $e');
+    }
 
-      // 2. التحقق من أذونات الموقع
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        debugPrint("❌ [BG Service] Location permissions are denied.");
-        lastUpdate = 'خطأ: إذن الوصول للموقع مرفوض';
-        service.invoke('update', {'lastUpdate': lastUpdate!});
-        // ملاحظة: لا يمكننا طلب الإذن من الخلفية. يجب على المستخدم منحه يدويًا.
-        return;
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        debugPrint(
-          "❌ [BG Service] Location permissions are permanently denied.",
+    // بدء تتبع الموقع مع إعدادات محسّنة للخلفية
+    _positionStreamSubscription =
+        Geolocator.getPositionStream(
+          locationSettings: LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 10, // تحديث عند التحرك 10 أمتار
+            timeLimit: null, // لا يوجد حد زمني
+            // إعدادات إضافية للتتبع المستمر
+          ),
+        ).listen(
+          (Position position) {
+            _handleNewPosition(position);
+            // إرسال فوري عند الحصول على موقع جديد
+            _sendLocationUpdate();
+          },
+          onError: (error) {
+            debugPrint('❌ [Tracking] Location stream error: $error');
+            // إعادة المحاولة بعد 30 ثانية
+            Future.delayed(const Duration(seconds: 30), () {
+              if (_positionStreamSubscription == null) {
+                startLocationTracking();
+              }
+            });
+          },
+          cancelOnError: false,
         );
-        lastUpdate = 'خطأ: تم رفض إذن الموقع بشكل دائم';
-        service.invoke('update', {'lastUpdate': lastUpdate!});
+
+    // أيضاً نستخدم Timer لإرسال البيانات كل دقيقة (كحل احتياطي للتأكد من الاستمرارية)
+    _locationTimer = Timer.periodic(const Duration(minutes: 1), (timer) async {
+      // التحقق من أن التتبع لا يزال نشطاً
+      if (_positionStreamSubscription == null) {
+        debugPrint('⚠️ [Tracking] Stream subscription lost, restarting...');
+        timer.cancel();
+        startLocationTracking();
         return;
       }
+      await _sendLocationUpdate();
+    });
 
-      // 3. إذا كانت الأذونات ممنوحة والخدمة تعمل، احصل على الموقع الحالي
-      debugPrint(
-        "🌍 [BG Service] Permissions are OK. Getting current position...",
+    // إرسال فوري عند البدء
+    await _sendLocationUpdate();
+    _lastSuccessfulUpdate = DateTime.now();
+
+    // بدء Health Check Timer للتحقق من استمرار التتبع كل 5 دقائق
+    _healthCheckTimer = Timer.periodic(const Duration(minutes: 5), (timer) async {
+      await _performHealthCheck();
+    });
+
+    // بدء Network Check Timer للتحقق من الاتصال وإرسال البيانات المحفوظة كل دقيقتين
+    _networkCheckTimer = Timer.periodic(const Duration(minutes: 2), (timer) async {
+      await _checkNetworkAndSendPending();
+    });
+
+    // بدء Token Check Timer للتحقق من الـ token وتجديده تلقائياً كل 10 دقائق
+    Timer.periodic(const Duration(minutes: 10), (timer) async {
+      try {
+        final token = await AuthService.getValidToken();
+        if (token == null) {
+          debugPrint('⚠️ [Tracking] No valid token available');
+        } else {
+          debugPrint('✅ [Tracking] Token is valid');
+        }
+      } catch (e) {
+        debugPrint('❌ [Tracking] Error checking token: $e');
+      }
+    });
+
+    // محاولة إرسال البيانات المحفوظة فوراً عند البدء
+    Future.delayed(const Duration(seconds: 5), () async {
+      await _checkNetworkAndSendPending();
+    });
+
+    debugPrint('✅ [Tracking] Location tracking started successfully');
+  } catch (e, stackTrace) {
+    debugPrint('❌ [Tracking] Error starting location tracking: $e');
+    debugPrint('❌ [Tracking] Stack trace: $stackTrace');
+  }
+}
+
+// -----------------------------------------------------------------------------
+// معالجة موقع جديد
+// -----------------------------------------------------------------------------
+void _handleNewPosition(Position position) {
+  try {
+    double? distanceFromPrevious;
+    double? speed;
+    double? heading;
+    Duration? stopDuration;
+
+    // حساب المسافة والسرعة والاتجاه
+    if (_lastPosition != null) {
+      distanceFromPrevious = Geolocator.distanceBetween(
+        _lastPosition!.latitude,
+        _lastPosition!.longitude,
+        position.latitude,
+        position.longitude,
       );
-      final Position position =
-          await Geolocator.getCurrentPosition(
-            desiredAccuracy: LocationAccuracy.medium,
-            timeLimit: const Duration(seconds: 15),
-          ).timeout(
-            const Duration(seconds: 15),
-            onTimeout: () {
-              debugPrint("⏱️ [BG Service] Location request timeout");
-              throw TimeoutException(
-                'Location request timeout',
-                const Duration(seconds: 15),
-              );
-            },
-          );
 
-      // --- ⬆️⬆️ نهاية الكود الجديد باستخدام Geolocator ⬆️⬆️ ---
+      double timeDiff =
+          (position.timestamp
+              .difference(_lastPosition!.timestamp)
+              .inMilliseconds /
+          1000.0);
 
-      final prefs = await SharedPreferences.getInstance();
-      final jobNumber = prefs.getString('jobNumber');
-      final apiKey = prefs.getString('apiKey');
-
-      if (jobNumber == null || apiKey == null) {
-        timer?.cancel();
-        service.stopSelf();
-        return;
+      if (timeDiff > 0) {
+        double speedMs = distanceFromPrevious / timeDiff;
+        speed = speedMs * 3.6; // تحويل إلى كم/ساعة
+        _currentSpeed = speed;
       }
 
-      debugPrint(
-        '🛰️ [BG Service] Got location: Lat ${position.latitude}, Lng ${position.longitude}',
+      // حساب الاتجاه (heading)
+      heading = Geolocator.bearingBetween(
+        _lastPosition!.latitude,
+        _lastPosition!.longitude,
+        position.latitude,
+        position.longitude,
       );
+      _currentHeading = heading;
 
-      // 4. إرسال الموقع إلى السيرفر مع إعادة محاولة تلقائية
+      // تحديد حالة التوقف
+      if (distanceFromPrevious < _stopDistanceThreshold) {
+        // المستخدم متوقف أو يتحرك قليلاً
+        if (_stopStartTime == null) {
+          // بدء فترة توقف جديدة
+          _stopStartTime = _lastPosition!.timestamp;
+          _stopPosition = _lastPosition;
+          debugPrint('🛑 [Stop] Stop detected at: Lat ${_lastPosition!.latitude.toStringAsFixed(6)}, Lng ${_lastPosition!.longitude.toStringAsFixed(6)}');
+        } else {
+          // استمرار التوقف - حساب المدة
+          final stopDurationCalc = position.timestamp.difference(_stopStartTime!);
+          if (stopDurationCalc >= _stopTimeThreshold) {
+            stopDuration = stopDurationCalc;
+            debugPrint('⏱️ [Stop] Stop duration: ${_formatStopDuration(stopDuration)}');
+          }
+        }
+      } else {
+        // المستخدم يتحرك - إنهاء فترة التوقف إن وجدت
+        if (_stopStartTime != null && _stopPosition != null) {
+          final finalStopDuration = position.timestamp.difference(_stopStartTime!);
+          if (finalStopDuration >= _stopTimeThreshold) {
+            debugPrint('🚶 [Stop] Stop ended. Total duration: ${_formatStopDuration(finalStopDuration)}');
+            debugPrint('📍 [Stop] Stop location: Lat ${_stopPosition!.latitude.toStringAsFixed(6)}, Lng ${_stopPosition!.longitude.toStringAsFixed(6)}');
+          }
+          _stopStartTime = null;
+          _stopPosition = null;
+        }
+      }
+
+      // تحديث إجمالي المسافة
+      _totalDistance = (_totalDistance ?? 0) + distanceFromPrevious;
+    }
+
+    // حفظ الموقع في القائمة
+    _trackedPositions.add(position);
+    
+    // الاحتفاظ بآخر 100 موقع فقط (لمنع استهلاك الذاكرة)
+    if (_trackedPositions.length > 100) {
+      _trackedPositions.removeAt(0);
+    }
+
+    _lastPosition = position;
+
+    debugPrint(
+      '📍 [Tracking] New position: Lat ${position.latitude.toStringAsFixed(6)}, Lng ${position.longitude.toStringAsFixed(6)}',
+    );
+    if (speed != null) {
+      debugPrint(
+        '🚗 [Tracking] Speed: ${speed.toStringAsFixed(2)} km/h',
+      );
+    }
+    if (heading != null) {
+      debugPrint(
+        '🧭 [Tracking] Heading: ${heading.toStringAsFixed(1)}°',
+      );
+    }
+    if (distanceFromPrevious != null) {
+      debugPrint(
+        '📏 [Tracking] Distance: ${distanceFromPrevious.toStringAsFixed(2)} m',
+      );
+    }
+    if (_totalDistance != null) {
+      debugPrint(
+        '📊 [Tracking] Total distance: ${(_totalDistance! / 1000).toStringAsFixed(2)} km',
+      );
+    }
+    if (stopDuration != null) {
+      debugPrint(
+        '⏸️ [Tracking] Stop duration: ${_formatStopDuration(stopDuration)}',
+      );
+    }
+  } catch (e) {
+    debugPrint('❌ [Tracking] Error handling new position: $e');
+  }
+}
+
+// -----------------------------------------------------------------------------
+// تنسيق مدة التوقف
+// -----------------------------------------------------------------------------
+String _formatStopDuration(Duration duration) {
+  final days = duration.inDays;
+  final hours = duration.inHours % 24;
+  final minutes = duration.inMinutes % 60;
+  final seconds = duration.inSeconds % 60;
+
+  if (days > 0) {
+    return '${days} يوم ${hours} ساعة ${minutes} دقيقة';
+  } else if (hours > 0) {
+    return '${hours} ساعة ${minutes} دقيقة ${seconds} ثانية';
+  } else if (minutes > 0) {
+    return '${minutes} دقيقة ${seconds} ثانية';
+  } else {
+    return '${seconds} ثانية';
+  }
+}
+
+// -----------------------------------------------------------------------------
+// الحصول على مدة التوقف الحالية
+// -----------------------------------------------------------------------------
+Duration? _getCurrentStopDuration() {
+  if (_stopStartTime == null) {
+    return null;
+  }
+  return DateTime.now().difference(_stopStartTime!);
+}
+
+// -----------------------------------------------------------------------------
+// إرسال تحديث الموقع
+// -----------------------------------------------------------------------------
+Future<void> _sendLocationUpdate() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final jobNumber = prefs.getString('jobNumber');
+    final apiKey = prefs.getString('apiKey');
+
+    if (jobNumber == null || apiKey == null) {
+      debugPrint('⚠️ [Tracking] jobNumber or apiKey is null');
+      return;
+    }
+
+    // استخدام آخر موقع معروف أو الحصول على موقع جديد
+    Position position;
+    if (_lastPosition != null) {
+      position = _lastPosition!;
+    } else {
+      position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 15),
+      );
+      _lastPosition = position;
+    }
+
+    // حساب المسافة من الموقع السابق
+    double? distanceFromPrevious;
+    if (_trackedPositions.length > 1) {
+      final previousPosition = _trackedPositions[_trackedPositions.length - 2];
+      distanceFromPrevious = Geolocator.distanceBetween(
+        previousPosition.latitude,
+        previousPosition.longitude,
+        position.latitude,
+        position.longitude,
+      );
+    }
+
+    // حساب مدة التوقف الحالية
+    Duration? stopDuration;
+    if (_stopStartTime != null && _stopPosition != null) {
+      final currentStopDuration = _getCurrentStopDuration();
+      if (currentStopDuration != null && currentStopDuration >= _stopTimeThreshold) {
+        stopDuration = currentStopDuration;
+      }
+    }
+
+    debugPrint(
+      '🛰️ [Tracking] Sending location: Lat ${position.latitude.toStringAsFixed(6)}, Lng ${position.longitude.toStringAsFixed(6)}',
+    );
+
+    // محاولة إرسال الموقع إلى السيرفر
+    try {
       final response = await LocationApiService.sendLocationWithRetry(
         jobNumber: jobNumber,
         latitude: position.latitude,
         longitude: position.longitude,
         accuracy: position.accuracy,
-        apiKey: apiKey, // استخدام apiKey من SharedPreferences
+        apiKey: apiKey,
       );
 
       final now = DateFormat('hh:mm a', 'ar').format(DateTime.now());
       if (response.success) {
-        lastUpdate = 'آخر إرسال ناجح: $now';
-        debugPrint('✅ [BG Service] Location sent successfully!');
-        service.invoke('update', {'lastUpdate': lastUpdate!});
+        _lastSuccessfulUpdate = DateTime.now();
+        debugPrint('✅ [Tracking] Location sent successfully at $now');
       } else {
-        lastUpdate = 'فشل الإرسال الأخير: $now';
-        debugPrint('❌ [BG Service] Failed to send location: ${response.error}');
-        service.invoke('update', {'lastUpdate': lastUpdate!});
+        // فشل الإرسال - حفظ محلياً مع تفاصيل التنقل
+        debugPrint('💾 [Tracking] Failed to send, saving locally...');
+        await LocationApiService.savePendingLocation(
+          jobNumber: jobNumber,
+          latitude: position.latitude,
+          longitude: position.longitude,
+          accuracy: position.accuracy,
+          speed: _currentSpeed,
+          heading: _currentHeading,
+          distanceFromPrevious: distanceFromPrevious,
+          stopDuration: stopDuration,
+          isOffline: true,
+        );
+        debugPrint('❌ [Tracking] Failed to send location: ${response.error}');
       }
     } catch (e) {
-      debugPrint('🔥 [BG Service] An unexpected error occurred: $e');
-      lastUpdate = 'حدث خطأ غير متوقع';
-      service.invoke('update', {'lastUpdate': lastUpdate!});
+      // خطأ في الاتصال - حفظ محلياً
+      debugPrint('💾 [Tracking] Network error, saving locally: $e');
+      await LocationApiService.savePendingLocation(
+        jobNumber: jobNumber,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        accuracy: position.accuracy,
+        speed: _currentSpeed,
+        heading: _currentHeading,
+        distanceFromPrevious: distanceFromPrevious,
+        stopDuration: stopDuration,
+        isOffline: true,
+      );
     }
-  }
-
-  // ضبط المؤقت للعمل كل دقيقة واحدة (لأغراض الاختبار)
-  timer = Timer.periodic(const Duration(minutes: 1), (timerInstance) async {
-    debugPrint("---------------------[ Timer Tick ]---------------------");
-    await performLocationUpdate();
-  });
-
-  // تشغيل فوري عند بدء الخدمة لأول مرة
-  debugPrint("------------------[ Service Started ]------------------");
-  await performLocationUpdate();
-
-  // دالة لإرسال حالة التوقف
-  Future<void> sendStopStatusToServer() async {
+  } catch (e) {
+    debugPrint('🔥 [Tracking] Error in _sendLocationUpdate: $e');
+    // حتى في حالة الخطأ، حاول حفظ الموقع محلياً
     try {
       final prefs = await SharedPreferences.getInstance();
       final jobNumber = prefs.getString('jobNumber');
       final apiKey = prefs.getString('apiKey');
-
-      if (jobNumber != null && apiKey != null) {
-        debugPrint('🛑 [BG Service] Sending stop status to server...');
-        await LocationApiService.sendStopStatusWithRetry(
+      
+      if (jobNumber != null && apiKey != null && _lastPosition != null) {
+        final currentStopDuration = _getCurrentStopDuration();
+        await LocationApiService.savePendingLocation(
           jobNumber: jobNumber,
-          apiKey: apiKey,
-        ).timeout(
-          const Duration(seconds: 5),
-          onTimeout: () {
-            debugPrint('⏱️ [BG Service] Stop status timeout');
-            return false;
-          },
-        );
-        debugPrint('✅ [BG Service] Stop status sent successfully');
-      } else {
-        debugPrint(
-          '⚠️ [BG Service] Cannot send stop status: jobNumber or apiKey is null',
+          latitude: _lastPosition!.latitude,
+          longitude: _lastPosition!.longitude,
+          accuracy: _lastPosition!.accuracy,
+          speed: _currentSpeed,
+          heading: _currentHeading,
+          stopDuration: (currentStopDuration != null && currentStopDuration >= _stopTimeThreshold) 
+              ? currentStopDuration 
+              : null,
+          isOffline: true,
         );
       }
-    } catch (e) {
-      debugPrint('❌ [BG Service] Error sending stop status: $e');
+    } catch (saveError) {
+      debugPrint('❌ [Tracking] Could not save location locally: $saveError');
     }
   }
+}
 
-  service.on('stopService').listen((event) async {
-    debugPrint("------------------[ Stopping Service ]-----------------");
+// -----------------------------------------------------------------------------
+// إيقاف تتبع الموقع
+// -----------------------------------------------------------------------------
+Future<void> stopLocationTracking() async {
+  try {
+    _locationTimer?.cancel();
+    _locationTimer = null;
 
-    // إرسال حالة التوقف إلى النظام
-    await sendStopStatusToServer();
+    _healthCheckTimer?.cancel();
+    _healthCheckTimer = null;
 
-    timer?.cancel();
-    service.stopSelf();
-  });
+    _networkCheckTimer?.cancel();
+    _networkCheckTimer = null;
 
-  // معالج عند توقف الخدمة نفسها (عند إغلاق التطبيق)
-  service.on('destroy').listen((event) async {
-    debugPrint("------------------[ Service Destroyed ]-----------------");
-    await sendStopStatusToServer();
-  });
+    await _positionStreamSubscription?.cancel();
+    _positionStreamSubscription = null;
 
-  // معالج طلب التحديث الفوري
-  service.on('updateNow').listen((event) async {
-    debugPrint("------------------[ Manual Update Request ]-----------------");
-    await performLocationUpdate();
-  });
+    _lastPosition = null;
+    _currentSpeed = null;
+    _currentHeading = null;
+    _totalDistance = null;
+    _lastSuccessfulUpdate = null;
+    _trackedPositions.clear();
+    _stopStartTime = null;
+    _stopPosition = null;
 
-  // معالج طلب الحصول على الحالة
-  service.on('getStatus').listen((event) {
-    debugPrint("------------------[ Status Request ]-----------------");
-    service.invoke('update', {
-      'status': 'الخدمة تعمل في الخلفية',
-      'lastUpdate': lastUpdate ?? 'لم يتم الإرسال بعد',
-    });
-  });
+    // إطلاق Wake Lock
+    try {
+      await _releaseWakeLock();
+    } catch (e) {
+      debugPrint('⚠️ [Tracking] Could not release wake lock: $e');
+    }
 
-  service.invoke('update', {'status': 'الخدمة تعمل في الخلفية'});
+    debugPrint('✅ [Tracking] Location tracking stopped');
+  } catch (e) {
+    debugPrint('❌ [Tracking] Error stopping location tracking: $e');
+  }
+}
+
+// -----------------------------------------------------------------------------
+// طلب Wake Lock لمنع النظام من إيقاف التطبيق
+// -----------------------------------------------------------------------------
+Future<void> _requestWakeLock() async {
+  try {
+    const platform = MethodChannel('com.nuzum.tracker/wakelock');
+    await platform.invokeMethod('acquireWakeLock');
+    debugPrint('✅ [Tracking] Wake lock acquired');
+  } catch (e) {
+    debugPrint('⚠️ [Tracking] Wake lock not available: $e');
+  }
+}
+
+// -----------------------------------------------------------------------------
+// إطلاق Wake Lock
+// -----------------------------------------------------------------------------
+Future<void> _releaseWakeLock() async {
+  try {
+    const platform = MethodChannel('com.nuzum.tracker/wakelock');
+    await platform.invokeMethod('releaseWakeLock');
+    debugPrint('✅ [Tracking] Wake lock released');
+  } catch (e) {
+    debugPrint('⚠️ [Tracking] Could not release wake lock: $e');
+  }
+}
+
+// -----------------------------------------------------------------------------
+// طلب Battery Optimization Exemption
+// -----------------------------------------------------------------------------
+Future<void> _requestBatteryOptimizationExemption() async {
+  try {
+    const platform = MethodChannel('com.nuzum.tracker/battery');
+    await platform.invokeMethod('requestIgnoreBatteryOptimizations');
+    debugPrint('✅ [Tracking] Battery optimization exemption requested');
+  } catch (e) {
+    debugPrint('⚠️ [Tracking] Battery optimization exemption not available: $e');
+  }
+}
+
+// -----------------------------------------------------------------------------
+// التحقق من الاتصال وإرسال البيانات المحفوظة
+// -----------------------------------------------------------------------------
+Future<void> _checkNetworkAndSendPending() async {
+  try {
+    // التحقق من وجود مواقع محفوظة
+    final pendingCount = await LocationApiService.getPendingCount();
+    if (pendingCount == 0) {
+      return;
+    }
+
+    debugPrint('🔄 [Network] Checking network and sending $pendingCount pending locations...');
+
+    // التحقق من الاتصال
+    final hasConnection = await LocationApiService.testConnection();
+    if (!hasConnection) {
+      debugPrint('⚠️ [Network] No network connection, will retry later');
+      return;
+    }
+
+    // محاولة إرسال المواقع المحفوظة
+    final result = await LocationApiService.retryPendingLocations();
+    if (result['success'] == true) {
+      final sent = result['sent'] as int;
+      final failed = result['failed'] as int;
+      debugPrint('✅ [Network] Sent $sent locations, $failed failed');
+    }
+  } catch (e) {
+    debugPrint('❌ [Network] Error checking network: $e');
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Health Check - التحقق من استمرار التتبع
+// -----------------------------------------------------------------------------
+Future<void> _performHealthCheck() async {
+  try {
+    // التحقق من أن Stream لا يزال نشطاً
+    if (_positionStreamSubscription == null) {
+      debugPrint('⚠️ [Tracking] Health check: Stream subscription is null, restarting...');
+      await startLocationTracking();
+      return;
+    }
+
+    // التحقق من آخر تحديث ناجح
+    if (_lastSuccessfulUpdate != null) {
+      final timeSinceLastUpdate = DateTime.now().difference(_lastSuccessfulUpdate!);
+      if (timeSinceLastUpdate.inMinutes > 10) {
+        debugPrint('⚠️ [Tracking] Health check: No update for ${timeSinceLastUpdate.inMinutes} minutes, restarting...');
+        await stopLocationTracking();
+        await Future.delayed(const Duration(seconds: 5));
+        await startLocationTracking();
+        return;
+      }
+    }
+
+    // محاولة الحصول على موقع جديد للتحقق
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
+      );
+      _lastPosition = position;
+      debugPrint('✅ [Tracking] Health check: Location service is working');
+    } catch (e) {
+      debugPrint('⚠️ [Tracking] Health check: Could not get current position: $e');
+      // إعادة تشغيل التتبع
+      await stopLocationTracking();
+      await Future.delayed(const Duration(seconds: 5));
+      await startLocationTracking();
+    }
+  } catch (e) {
+    debugPrint('❌ [Tracking] Health check error: $e');
+  }
+}
+
+// -----------------------------------------------------------------------------
+// إرسال الموقع إلى السيرفر (للاستخدام المباشر)
+// -----------------------------------------------------------------------------
+Future<void> performLocationUpdate() async {
+  await _sendLocationUpdate();
+}
+
+// -----------------------------------------------------------------------------
+// التحقق من حالة التتبع
+// -----------------------------------------------------------------------------
+Future<bool> isTrackingActive() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final jobNumber = prefs.getString('jobNumber');
+    final apiKey = prefs.getString('apiKey');
+    return jobNumber != null &&
+        apiKey != null &&
+        _positionStreamSubscription != null;
+  } catch (e) {
+    debugPrint('❌ [Tracking] Error checking tracking status: $e');
+    return false;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// الحصول على السرعة الحالية
+// -----------------------------------------------------------------------------
+double? getCurrentSpeed() {
+  return _currentSpeed;
+}
+
+// -----------------------------------------------------------------------------
+// الحصول على الموقع الحالي
+// -----------------------------------------------------------------------------
+Position? getCurrentPosition() {
+  return _lastPosition;
 }

@@ -1,9 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:intl/intl.dart';
+import 'package:nuzum_tracker/services/background_service.dart';
 import 'package:nuzum_tracker/services/location_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'setup_screen.dart';
+import '../widgets/beautiful_card.dart';
+import 'employee_profile_screen.dart';
+import 'main_navigation_screen.dart';
 
 class TrackingScreen extends StatefulWidget {
   const TrackingScreen({super.key});
@@ -17,17 +23,69 @@ class _TrackingScreenState extends State<TrackingScreen> {
   String _lastUpdate = 'لم يتم الإرسال بعد';
   String _jobNumber = '';
   bool _isRefreshing = false;
+  double? _currentSpeed;
+  double? _latitude;
+  double? _longitude;
+  StreamSubscription<Position>? _positionStreamSubscription;
 
   @override
   void initState() {
     super.initState();
     _loadJobNumber();
     _listenToService();
+    _startServiceIfNeeded();
+  }
+
+  Future<void> _startServiceIfNeeded() async {
+    try {
+      bool isActive = await isTrackingActive();
+      if (isActive) {
+        debugPrint('🚀 [Tracking] Starting location tracking...');
+
+        try {
+          await startLocationTracking();
+          if (mounted) {
+            setState(() {
+              _deviceStatus = 'التتبع نشط';
+              _lastUpdate = 'جاري جمع البيانات...';
+            });
+          }
+          debugPrint('✅ [Tracking] Location tracking started successfully');
+        } catch (startError) {
+          debugPrint('❌ [Tracking] Error starting tracking: $startError');
+          if (mounted) {
+            setState(() {
+              _deviceStatus = 'خطأ في بدء التتبع';
+              _lastUpdate = 'فشل بدء خدمة التتبع';
+            });
+          }
+        }
+      } else {
+        debugPrint(
+          '⚠️ [Tracking] Tracking not configured (missing jobNumber or apiKey)',
+        );
+        if (mounted) {
+          setState(() {
+            _deviceStatus = 'غير مُعدّ';
+            _lastUpdate = 'يرجى إعداد التطبيق أولاً';
+          });
+        }
+      }
+    } catch (e, stackTrace) {
+      debugPrint('❌ [Tracking] Error in _startServiceIfNeeded: $e');
+      debugPrint('❌ [Tracking] Stack trace: $stackTrace');
+      if (mounted) {
+        setState(() {
+          _deviceStatus = 'خطأ في الخدمة';
+          _lastUpdate = 'حدث خطأ: ${e.toString()}';
+        });
+      }
+    }
   }
 
   @override
   void dispose() {
-    // إرسال حالة التوقف عند إغلاق الشاشة
+    _positionStreamSubscription?.cancel();
     _sendStopStatusOnDispose();
     super.dispose();
   }
@@ -37,23 +95,24 @@ class _TrackingScreenState extends State<TrackingScreen> {
       final prefs = await SharedPreferences.getInstance();
       final jobNumber = prefs.getString('jobNumber');
       final apiKey = prefs.getString('apiKey');
-      
+
       if (jobNumber != null && apiKey != null) {
         debugPrint('🛑 [Tracking] Screen is closing, sending stop status...');
-        // إرسال بدون انتظار (fire and forget)
         LocationApiService.sendStopStatusWithRetry(
-          jobNumber: jobNumber,
-          apiKey: apiKey,
-        ).timeout(
-          const Duration(seconds: 3),
-          onTimeout: () {
-            debugPrint('⏱️ [Tracking] Stop status timeout');
-            return false;
-          },
-        ).catchError((e) {
-          debugPrint('❌ [Tracking] Error sending stop status: $e');
-          return false;
-        });
+              jobNumber: jobNumber,
+              apiKey: apiKey,
+            )
+            .timeout(
+              const Duration(seconds: 3),
+              onTimeout: () {
+                debugPrint('⏱️ [Tracking] Stop status timeout');
+                return false;
+              },
+            )
+            .catchError((e) {
+              debugPrint('❌ [Tracking] Error sending stop status: $e');
+              return false;
+            });
       }
     } catch (e) {
       debugPrint('❌ [Tracking] Error in _sendStopStatusOnDispose: $e');
@@ -68,15 +127,65 @@ class _TrackingScreenState extends State<TrackingScreen> {
   }
 
   void _listenToService() {
-    final service = FlutterBackgroundService();
-    service.on('update').listen((event) {
-      if (event != null && mounted) {
-        setState(() {
-          _deviceStatus = event['status'] ?? _deviceStatus;
-          _lastUpdate = event['lastUpdate'] ?? _lastUpdate;
-        });
+    _startLocationStream();
+
+    Timer.periodic(const Duration(seconds: 5), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      try {
+        bool isActive = await isTrackingActive();
+        if (isActive) {
+          setState(() {
+            _deviceStatus = 'التتبع نشط';
+            if (_lastUpdate == 'لم يتم الإرسال بعد') {
+              _lastUpdate = 'جاري جمع البيانات...';
+            }
+          });
+        } else {
+          setState(() {
+            _deviceStatus = 'التتبع متوقف';
+            _lastUpdate = 'الخدمة غير نشطة';
+          });
+        }
+      } catch (e) {
+        debugPrint('❌ [Tracking] Error checking status: $e');
       }
     });
+  }
+
+  void _startLocationStream() async {
+    try {
+      await startLocationTracking();
+
+      Timer.periodic(const Duration(seconds: 2), (timer) {
+        if (!mounted) {
+          timer.cancel();
+          return;
+        }
+
+        final position = getCurrentPosition();
+        final speed = getCurrentSpeed();
+
+        if (position != null) {
+          setState(() {
+            _latitude = position.latitude;
+            _longitude = position.longitude;
+            if (speed != null) {
+              _currentSpeed = speed;
+            }
+            _lastUpdate =
+                'آخر تحديث: ${DateFormat('hh:mm a', 'ar').format(DateTime.now())}';
+          });
+        }
+      });
+
+      debugPrint('✅ [Tracking] Location stream started');
+    } catch (e) {
+      debugPrint('❌ [Tracking] Error starting location stream: $e');
+    }
   }
 
   Future<void> _refreshStatus() async {
@@ -89,22 +198,18 @@ class _TrackingScreenState extends State<TrackingScreen> {
     });
 
     try {
-      final service = FlutterBackgroundService();
-      bool isRunning = await service.isRunning();
+      await performLocationUpdate();
 
-      if (isRunning) {
-        // إرسال طلب تحديث فوري للخدمة الخلفية
-        service.invoke('updateNow');
-
-        // انتظر قليلاً للحصول على التحديث
-        await Future.delayed(const Duration(seconds: 2));
-
-        // تحديث الحالة من الخدمة
-        service.invoke('getStatus');
+      bool isActive = await isTrackingActive();
+      if (isActive) {
+        setState(() {
+          _deviceStatus = 'التتبع نشط';
+          _lastUpdate = 'تم التحديث بنجاح';
+        });
       } else {
         setState(() {
-          _deviceStatus = 'الخدمة غير نشطة';
-          _lastUpdate = 'الخدمة متوقفة';
+          _deviceStatus = 'التتبع متوقف';
+          _lastUpdate = 'الخدمة غير نشطة';
         });
       }
     } catch (e) {
@@ -126,13 +231,13 @@ class _TrackingScreenState extends State<TrackingScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Row(
           children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
-            SizedBox(width: 12),
-            Text('إيقاف التتبع'),
+            Icon(Icons.stop_circle, color: Colors.red),
+            SizedBox(width: 10),
+            Text('إيقاف التتبع', style: TextStyle(fontWeight: FontWeight.bold)),
           ],
         ),
         content: const Text(
-          'هل أنت متأكد من رغبتك في إيقاف خدمة التتبع وحذف البيانات؟',
+          'هل أنت متأكد أنك تريد إيقاف تتبع الموقع؟ سيتم مسح جميع البيانات.',
           style: TextStyle(fontSize: 16),
         ),
         actions: [
@@ -156,12 +261,11 @@ class _TrackingScreenState extends State<TrackingScreen> {
     );
 
     if (confirm == true) {
-      // إرسال حالة التوقف إلى النظام قبل إيقاف الخدمة
       try {
         final prefs = await SharedPreferences.getInstance();
         final jobNumber = prefs.getString('jobNumber');
         final apiKey = prefs.getString('apiKey');
-        
+
         if (jobNumber != null && apiKey != null) {
           debugPrint('🛑 [Tracking] Sending stop status to server...');
           await LocationApiService.sendStopStatusWithRetry(
@@ -173,16 +277,15 @@ class _TrackingScreenState extends State<TrackingScreen> {
       } catch (e) {
         debugPrint('❌ [Tracking] Error sending stop status: $e');
       }
-      
-      final service = FlutterBackgroundService();
-      service.invoke('stopService');
+
+      await stopLocationTracking();
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.clear();
 
       if (mounted) {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const SetupScreen()),
+          MaterialPageRoute(builder: (context) => const MainNavigationScreen()),
         );
       }
     }
@@ -196,11 +299,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
           gradient: LinearGradient(
             begin: Alignment.topRight,
             end: Alignment.bottomLeft,
-            colors: [
-              Color(0xFF1A237E), // Deep Indigo
-              Color(0xFF283593), // Indigo
-              Color(0xFF1565C0), // Blue
-            ],
+            colors: [Color(0xFF1A237E), Color(0xFF283593), Color(0xFF1565C0)],
             stops: [0.0, 0.5, 1.0],
           ),
         ),
@@ -208,106 +307,18 @@ class _TrackingScreenState extends State<TrackingScreen> {
           child: Column(
             children: [
               // App Bar مخصص
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'حالة التتبع',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                    Row(
-                      children: [
-                        // زر التحديث
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.3),
-                              width: 1,
-                            ),
-                          ),
-                          child: IconButton(
-                            icon: _isRefreshing
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        Colors.white,
-                                      ),
-                                    ),
-                                  )
-                                : const Icon(
-                                    Icons.refresh,
-                                    color: Colors.white,
-                                    size: 28,
-                                  ),
-                            onPressed: _isRefreshing ? null : _refreshStatus,
-                            tooltip: 'تحديث الحالة',
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        // زر الإيقاف
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.3),
-                              width: 1,
-                            ),
-                          ),
-                          child: IconButton(
-                            icon: const Icon(
-                              Icons.stop_circle_outlined,
-                              color: Colors.white,
-                              size: 28,
-                            ),
-                            onPressed: _stopTracking,
-                            tooltip: 'إيقاف التتبع',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
+              _buildCustomAppBar(),
               // المحتوى الرئيسي
               Expanded(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(24.0),
+                  padding: const EdgeInsets.all(20.0),
                   child: Column(
                     children: [
-                      const SizedBox(height: 20),
                       // بطاقة الحالة الرئيسية
                       _buildMainStatusCard(),
-                      const SizedBox(height: 32),
+                      const SizedBox(height: 24),
                       // بطاقات المعلومات
-                      _buildInfoCard(
-                        'حالة الخدمة',
-                        _deviceStatus,
-                        Icons.sync,
-                        Colors.blue,
-                      ),
-                      const SizedBox(height: 16),
-                      _buildInfoCard(
-                        'آخر تحديث',
-                        _lastUpdate,
-                        Icons.timer,
-                        Colors.green,
-                      ),
+                      _buildInfoGrid(),
                       const SizedBox(height: 24),
                       // بطاقة معلومات الموظف
                       _buildEmployeeCard(),
@@ -322,31 +333,108 @@ class _TrackingScreenState extends State<TrackingScreen> {
     );
   }
 
-  Widget _buildMainStatusCard() {
+  Widget _buildCustomAppBar() {
     return Container(
-      padding: const EdgeInsets.all(32),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.25),
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.4),
-          width: 2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.2),
-            blurRadius: 24,
-            spreadRadius: 2,
-            offset: const Offset(0, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          // Drawer button
+          Builder(
+            builder: (context) => IconButton(
+              icon: const Icon(Icons.menu, color: Colors.white),
+              onPressed: () => Scaffold.of(context).openDrawer(),
+            ),
+          ),
+          const Text(
+            'حالة التتبع',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
+            ),
+          ),
+          Row(
+            children: [
+              _buildActionButton(
+                icon: Icons.refresh,
+                onPressed: _isRefreshing ? null : _refreshStatus,
+                isLoading: _isRefreshing,
+              ),
+              const SizedBox(width: 8),
+              _buildActionButton(
+                icon: Icons.person,
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const EmployeeProfileScreen(),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(width: 8),
+              _buildActionButton(
+                icon: Icons.stop_circle_outlined,
+                onPressed: _stopTracking,
+                color: Colors.red.shade300,
+              ),
+            ],
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildActionButton({
+    required IconData icon,
+    required VoidCallback? onPressed,
+    bool isLoading = false,
+    Color? color,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.3),
+          width: 1,
+        ),
+      ),
+      child: IconButton(
+        icon: isLoading
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              )
+            : Icon(icon, color: color ?? Colors.white, size: 24),
+        onPressed: onPressed,
+      ),
+    );
+  }
+
+  Widget _buildMainStatusCard() {
+    return BeautifulCard(
+      gradient: LinearGradient(
+        begin: Alignment.topRight,
+        end: Alignment.bottomLeft,
+        colors: [
+          Colors.white.withValues(alpha: 0.3),
+          Colors.white.withValues(alpha: 0.15),
+        ],
+      ),
+      border: Border.all(color: Colors.white.withValues(alpha: 0.4), width: 2),
+      padding: const EdgeInsets.all(32),
       child: Column(
         children: [
-          // الأيقونة
           Container(
-            width: 140,
-            height: 140,
+            width: 120,
+            height: 120,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: Colors.white.withValues(alpha: 0.2),
@@ -365,8 +453,6 @@ class _TrackingScreenState extends State<TrackingScreen> {
             child: ClipOval(
               child: Image.asset(
                 'assets/icons/app_logo.png',
-                width: 140,
-                height: 140,
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) {
                   return Container(
@@ -376,7 +462,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
                     ),
                     child: const Icon(
                       Icons.check_circle,
-                      size: 80,
+                      size: 60,
                       color: Colors.green,
                     ),
                   );
@@ -385,7 +471,6 @@ class _TrackingScreenState extends State<TrackingScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          // النص الرئيسي
           const Text(
             'التتبع نشط',
             style: TextStyle(
@@ -395,179 +480,155 @@ class _TrackingScreenState extends State<TrackingScreen> {
               letterSpacing: 1,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.green.withValues(alpha: 0.4),
+              color: Colors.white.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: Colors.green.withValues(alpha: 0.6),
-                width: 1.5,
+              border: Border.all(color: Colors.white.withValues(alpha: 0.4)),
+            ),
+            child: Text(
+              'Job Number: $_jobNumber',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
               ),
             ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoGrid() {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: StatisticCard(
+                title: 'حالة الخدمة',
+                value: _deviceStatus,
+                icon: Icons.sync,
+                color: Colors.blue,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: StatisticCard(
+                title: 'آخر تحديث',
+                value: _lastUpdate.length > 20
+                    ? '${_lastUpdate.substring(0, 20)}...'
+                    : _lastUpdate,
+                icon: Icons.timer,
+                color: Colors.green,
+              ),
+            ),
+          ],
+        ),
+        if (_currentSpeed != null) ...[
+          const SizedBox(height: 12),
+          StatisticCard(
+            title: 'السرعة الحالية',
+            value: '${_currentSpeed!.toStringAsFixed(1)} km/h',
+            icon: Icons.speed,
+            color: Colors.orange,
+          ),
+        ],
+        if (_latitude != null && _longitude != null) ...[
+          const SizedBox(height: 12),
+          BeautifulCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.circle, color: Colors.green, size: 12),
-                SizedBox(width: 8),
-                Text(
-                  'يعمل بشكل طبيعي',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.location_on,
+                        color: Colors.red,
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'الموقع الحالي',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Lat: ${_latitude!.toStringAsFixed(6)}',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            'Lng: ${_longitude!.toStringAsFixed(6)}',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildInfoCard(
-    String title,
-    String value,
-    IconData icon,
-    Color color,
-  ) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.25),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.4),
-          width: 1.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.15),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Row(
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.3),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: color.withValues(alpha: 0.5),
-                  width: 2,
-                ),
-              ),
-              child: Icon(icon, color: Colors.white, size: 28),
-            ),
-            const SizedBox(width: 20),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.9),
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.3,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    value,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.2,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+      ],
     );
   }
 
   Widget _buildEmployeeCard() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.25),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.4),
-          width: 1.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.15),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Row(
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: const Color(0xFF1A237E).withValues(alpha: 0.4),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.4),
-                  width: 2,
+    return BeautifulCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.person, color: Color(0xFF1A237E), size: 24),
+              SizedBox(width: 12),
+              Text(
+                'معلومات الموظف',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1A237E),
                 ),
               ),
-              child: const Icon(
-                Icons.badge_rounded,
-                color: Colors.white,
-                size: 28,
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              const Icon(Icons.badge, color: Color(0xFF1A237E), size: 24),
+              const SizedBox(width: 12),
+              Text(
+                'الرقم الوظيفي: $_jobNumber',
+                style: TextStyle(fontSize: 16, color: Colors.grey[700]),
               ),
-            ),
-            const SizedBox(width: 20),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'الرقم الوظيفي',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.9),
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.3,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _jobNumber,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+            ],
+          ),
+        ],
       ),
     );
   }

@@ -7,7 +7,8 @@ plugins {
 
 android {
     namespace = "com.example.nuzum_tracker"
-    compileSdk = flutter.compileSdkVersion
+    // Android SDK 36 support (required by plugins)
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -24,8 +25,8 @@ android {
         applicationId = "com.example.nuzum_tracker"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        minSdk = flutter.minSdkVersion // Android 5.0 (Lollipop) - minimum supported
+        targetSdk = 36 // Android SDK 36 support
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true

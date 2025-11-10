@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:nuzum_tracker/screens/disclaimer_screen.dart';
-import 'package:nuzum_tracker/screens/setup_screen.dart';
-import 'package:nuzum_tracker/screens/tracking_screen.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:nuzum_tracker/screens/login_screen.dart';
+import 'package:nuzum_tracker/screens/main_navigation_screen.dart';
+import 'package:nuzum_tracker/utils/safe_preferences.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -23,7 +23,7 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   void initState() {
     super.initState();
-    
+
     // تهيئة Animation Controller
     _animationController = AnimationController(
       vsync: this,
@@ -31,31 +31,28 @@ class _SplashScreenState extends State<SplashScreen>
     );
 
     // Fade Animation للشعار
-    _fadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: const Interval(0.0, 0.6, curve: Curves.easeIn),
-    ));
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: const Interval(0.0, 0.6, curve: Curves.easeIn),
+      ),
+    );
 
     // Scale Animation للشعار مع نبض
-    _scaleAnimation = Tween<double>(
-      begin: 0.5,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: const Interval(0.0, 0.6, curve: Curves.elasticOut),
-    ));
+    _scaleAnimation = Tween<double>(begin: 0.5, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: const Interval(0.0, 0.6, curve: Curves.elasticOut),
+      ),
+    );
 
     // Slide Animation للنص
-    _slideAnimation = Tween<double>(
-      begin: 50.0,
-      end: 0.0,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: const Interval(0.4, 1.0, curve: Curves.easeOut),
-    ));
+    _slideAnimation = Tween<double>(begin: 50.0, end: 0.0).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: const Interval(0.4, 1.0, curve: Curves.easeOut),
+      ),
+    );
 
     // بدء الأنيميشن
     _animationController.forward();
@@ -66,20 +63,23 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _navigateToNextScreen() async {
     await Future.delayed(const Duration(seconds: 3));
-    
+
     if (!mounted) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    final bool isConfigured = prefs.getString('jobNumber') != null;
-    final bool disclaimerAccepted = prefs.getBool('disclaimerAccepted') ?? false;
+    final bool disclaimerAccepted =
+        await SafePreferences.getBool('disclaimerAccepted') ?? false;
+    final String? jobNumber = await SafePreferences.getString('jobNumber');
+    final String? nationalId = await SafePreferences.getString('nationalId');
 
     Widget nextScreen;
     if (!disclaimerAccepted) {
       nextScreen = const DisclaimerScreen();
-    } else if (isConfigured) {
-      nextScreen = const TrackingScreen();
+    } else if (jobNumber != null && nationalId != null) {
+      // المستخدم مسجل دخول بالفعل
+      nextScreen = const MainNavigationScreen();
     } else {
-      nextScreen = const SetupScreen();
+      // المستخدم غير مسجل دخول - الانتقال لصفحة الدخول
+      nextScreen = const LoginScreen();
     }
 
     if (mounted) {
@@ -91,13 +91,16 @@ class _SplashScreenState extends State<SplashScreen>
             return FadeTransition(
               opacity: animation,
               child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0.0, 0.1),
-                  end: Offset.zero,
-                ).animate(CurvedAnimation(
-                  parent: animation,
-                  curve: Curves.easeOutCubic,
-                )),
+                position:
+                    Tween<Offset>(
+                      begin: const Offset(0.0, 0.1),
+                      end: Offset.zero,
+                    ).animate(
+                      CurvedAnimation(
+                        parent: animation,
+                        curve: Curves.easeOutCubic,
+                      ),
+                    ),
                 child: child,
               ),
             );
@@ -139,8 +142,12 @@ class _SplashScreenState extends State<SplashScreen>
                   animation: _animationController,
                   builder: (context, child) {
                     // أنيميشن نبض خفيفة
-                    final pulseScale = 1.0 + (0.05 * (0.5 - (0.5 - _animationController.value).abs() * 2));
-                    
+                    final pulseScale =
+                        1.0 +
+                        (0.05 *
+                            (0.5 -
+                                (0.5 - _animationController.value).abs() * 2));
+
                     return Transform.scale(
                       scale: _scaleAnimation.value * pulseScale,
                       child: Opacity(
@@ -152,13 +159,17 @@ class _SplashScreenState extends State<SplashScreen>
                             shape: BoxShape.circle,
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.white.withValues(alpha: 0.3 * _fadeAnimation.value),
+                                color: Colors.white.withValues(
+                                  alpha: 0.3 * _fadeAnimation.value,
+                                ),
                                 blurRadius: 40,
                                 spreadRadius: 10,
                                 offset: const Offset(0, 0),
                               ),
                               BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.2 * _fadeAnimation.value),
+                                color: Colors.black.withValues(
+                                  alpha: 0.2 * _fadeAnimation.value,
+                                ),
                                 blurRadius: 30,
                                 spreadRadius: 5,
                                 offset: const Offset(0, 10),
@@ -191,9 +202,9 @@ class _SplashScreenState extends State<SplashScreen>
                     );
                   },
                 ),
-                
+
                 const SizedBox(height: 40),
-                
+
                 // اسم التطبيق مع Slide Animation
                 AnimatedBuilder(
                   animation: _animationController,
@@ -228,9 +239,9 @@ class _SplashScreenState extends State<SplashScreen>
                     );
                   },
                 ),
-                
+
                 const SizedBox(height: 60),
-                
+
                 // Loading Indicator مع Rotation Animation
                 AnimatedBuilder(
                   animation: _animationController,
@@ -263,4 +274,3 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 }
-
