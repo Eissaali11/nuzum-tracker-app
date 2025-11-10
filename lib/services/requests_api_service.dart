@@ -537,10 +537,24 @@ class RequestsApiService {
           ),
         );
         
+        // إزالة أي Content-Type موجود مسبقاً لضمان أن Dio يضبطه تلقائياً
+        multipartDio.options.headers.remove('Content-Type');
+        
+        debugPrint('📤 [RequestsAPI] Sending multipart request with ${formData.files.length} files');
+        debugPrint('📋 [RequestsAPI] Form data fields: ${formData.fields.map((e) => '${e.key}: ${e.value}').join(', ')}');
+        debugPrint('📋 [RequestsAPI] Form data files: ${formData.files.map((e) => e.key).join(', ')}');
+        
         final response = await multipartDio.post(
           ApiConfig.createInvoicePath, // POST /api/v1/requests/create-invoice
           data: formData,
           onSendProgress: onProgress,
+          options: Options(
+            headers: {
+              if (token != null) 'Authorization': 'Bearer $token',
+              // لا نضبط Content-Type - Dio سيفعل ذلك تلقائياً مع boundary
+            },
+            contentType: null, // السماح لـ Dio بضبط Content-Type تلقائياً
+          ),
         );
 
         debugPrint('📥 [RequestsAPI] Response status code: ${response.statusCode}');
@@ -780,10 +794,33 @@ class RequestsApiService {
             });
 
             debugPrint('📤 [RequestsAPI] Uploading invoice to unified path with "invoice_image" field');
-            final response = await dio.post(
+            
+            // استخدام Dio جديد بدون Content-Type افتراضي
+            final token = await AuthService.getToken();
+            final unifiedMultipartDio = Dio(
+              BaseOptions(
+                baseUrl: ApiConfig.baseUrl,
+                connectTimeout: ApiConfig.timeoutDuration,
+                receiveTimeout: ApiConfig.timeoutDuration,
+                headers: {
+                  if (token != null) 'Authorization': 'Bearer $token',
+                },
+              ),
+            );
+            
+            // إزالة أي Content-Type موجود مسبقاً
+            unifiedMultipartDio.options.headers.remove('Content-Type');
+            
+            final response = await unifiedMultipartDio.post(
               ApiConfig.requestsBasePath, // POST /api/v1/requests
               data: formData,
               onSendProgress: onProgress,
+              options: Options(
+                headers: {
+                  if (token != null) 'Authorization': 'Bearer $token',
+                },
+                contentType: null, // السماح لـ Dio بضبط Content-Type تلقائياً
+              ),
             );
 
             if (response.statusCode == 200 || response.statusCode == 201) {
