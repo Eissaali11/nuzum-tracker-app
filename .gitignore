@@ -2,11 +2,14 @@
 *.json
 !pubspec.json
 !package.json
+!tsconfig.json
 
-# Private keys
-*_private_key*
-*service_account*
-*credentials*
+# Private keys (ملفات فقط، ليس ملفات التوثيق)
+*_private_key*.json
+*service_account*.json
+*credentials*.json
+!*_INFO.md
+!*_SETUP.md
 
 # Environment files
 .env
