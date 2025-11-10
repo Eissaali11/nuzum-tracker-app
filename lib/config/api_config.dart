@@ -11,6 +11,13 @@ class ApiConfig {
   // مفتاح API الافتراضي
   static const String defaultApiKey = 'test_location_key_2025';
 
+  // Google Drive Folder IDs
+  // رابط المجلد: https://drive.google.com/drive/folders/1AvaKUW2VKb9t4O4Dwo_KXTntBfDQ1IYe
+  static const String invoiceDriveFolderId = '1AvaKUW2VKb9t4O4Dwo_KXTntBfDQ1IYe';
+  static const String advanceDriveFolderId = '1AvaKUW2VKb9t4O4Dwo_KXTntBfDQ1IYe'; // نفس المجلد أو مجلد منفصل
+  static const String carWashDriveFolderId = '1AvaKUW2VKb9t4O4Dwo_KXTntBfDQ1IYe'; // نفس المجلد أو مجلد منفصل
+  static const String inspectionDriveFolderId = '1AvaKUW2VKb9t4O4Dwo_KXTntBfDQ1IYe'; // نفس المجلد أو مجلد منفصل
+
   // Timeout للطلبات
   static const Duration timeoutDuration = Duration(seconds: 30);
 

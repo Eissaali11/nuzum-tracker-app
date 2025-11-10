@@ -1,51 +1,30 @@
-# Miscellaneous
-*.class
-*.log
-*.pyc
-*.swp
-.DS_Store
-.atom/
-.build/
-.buildlog/
-.history
-.svn/
-.swiftpm/
-migrate_working_dir/
+# Service Account JSON files (أمان)
+*.json
+!pubspec.json
+!package.json
 
-# IntelliJ related
-*.iml
-*.ipr
-*.iws
+# Private keys
+*_private_key*
+*service_account*
+*credentials*
+
+# Environment files
+.env
+.env.local
+*.env
+
+# IDE
 .idea/
+.vscode/
+*.swp
+*.swo
+*~
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+# OS
+.DS_Store
+Thumbs.db
 
-# Flutter/Dart/Pub related
-**/doc/api/
-**/ios/Flutter/.last_build_id
-.dart_tool/
-.flutter-plugins-dependencies
-.pub-cache/
-.pub/
-/build/
-/coverage/
-
-# Symbolication related
-app.*.symbols
-
-# Obfuscation related
-app.*.map.json
-
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
-
-
-# Files and directories created by the Flutter tooling.
+# Flutter
 .dart_tool/
 .flutter-plugins
 .flutter-plugins-dependencies
@@ -53,29 +32,31 @@ app.*.map.json
 .pub-cache/
 .pub/
 build/
-
-# Files created by Flutter web tooling.
-.dart_tool/build/
-.dart_tool/chrome-device/
-.dart_tool/edge-device/
-
-# Lockfiles.
-pubspec.lock
-
-# Files created by Android Studio / IntelliJ.
 *.iml
 *.ipr
 *.iws
-.idea/
 
-# Files created by VS Code.
-.vscode/
+# Android
+android/.gradle/
+android/app/build/
+android/.idea/
+*.apk
+*.ap_
+*.aab
 
-# Temporary builds in the anroid & ios directories.
-android/app/src/main/assets/flutter_assets/
-ios/Flutter/App.framework
-ios/Flutter/engine
-ios/Flutter/flutter_assets/
+# iOS
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/ServiceDefinitions.json
+ios/Runner/GeneratedPluginRegistrant.*
 
-# macOS files
-.DS_Store
+# Web
+web/
+
+# Test
+coverage/
+
+# Logs
+*.log
