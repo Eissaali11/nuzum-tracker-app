@@ -8,6 +8,8 @@ import '../services/employee_api_service.dart';
 import '../services/notifications_api_service.dart';
 import '../utils/safe_preferences.dart';
 import 'attendance_list_screen.dart';
+import 'attendance/attendance_check_in_screen.dart';
+import 'attendance/face_enrollment_screen.dart';
 import 'cars_list_screen.dart';
 import 'employee_profile_screen.dart';
 import 'liabilities/liabilities_screen.dart';
@@ -817,6 +819,38 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                           });
                         },
                       ),
+                      const Divider(height: 16),
+                      _buildDrawerItem(
+                        icon: Icons.face_rounded,
+                        title: 'تسجيل الوجه',
+                        subtitle: 'تسجيل بصمة الوجه للتحضير',
+                        color: const Color(0xFF1A237E),
+                        onTap: () {
+                          Navigator.pop(context);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const FaceEnrollmentScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      _buildDrawerItem(
+                        icon: Icons.check_circle_rounded,
+                        title: 'التحضير',
+                        subtitle: 'تسجيل الحضور بتحليل الوجه',
+                        color: const Color(0xFF0D47A1),
+                        onTap: () {
+                          Navigator.pop(context);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const AttendanceCheckInScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      const Divider(height: 16),
                       _buildDrawerItem(
                         icon: Icons.account_balance_wallet_rounded,
                         title: 'الرواتب',

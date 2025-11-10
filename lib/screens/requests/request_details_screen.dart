@@ -33,18 +33,48 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
     });
 
     try {
-      final result = await RequestsApiService.getRequestDetails(
-        widget.requestId,
-      );
-
+      // محاولة استخدام الدوال المتخصصة أولاً
+      Map<String, dynamic>? result;
+      
+      // محاولة جلب كطلب غسيل
+      result = await RequestsApiService.getCarWashRequestDetails(widget.requestId);
       if (result['success'] == true) {
+        final data = result['data'] as Map<String, dynamic>;
+        // إضافة type للتوافق مع الكود الحالي
+        data['type'] = 'car_wash';
         setState(() {
-          _requestData = result['data'] as Map<String, dynamic>;
+          _requestData = data;
+          _isLoading = false;
+        });
+        return;
+      }
+      
+      // محاولة جلب كطلب فحص (فقط إذا لم يكن الخطأ not_found أو method_not_allowed)
+      final carWashError = result['error'] as String?;
+      if (carWashError != 'not_found' && carWashError != 'method_not_allowed') {
+        result = await RequestsApiService.getCarInspectionRequestDetails(widget.requestId);
+        if (result['success'] == true) {
+          final data = result['data'] as Map<String, dynamic>;
+          // إضافة type للتوافق مع الكود الحالي
+          data['type'] = 'car_inspection';
+          setState(() {
+            _requestData = data;
+            _isLoading = false;
+          });
+          return;
+        }
+      }
+      
+      // إذا فشلت المحاولات المتخصصة، استخدم الدالة العامة
+      final generalResult = await RequestsApiService.getRequestDetails(widget.requestId);
+      if (generalResult['success'] == true) {
+        setState(() {
+          _requestData = generalResult['data'] as Map<String, dynamic>;
           _isLoading = false;
         });
       } else {
         setState(() {
-          _error = result['error'] as String;
+          _error = generalResult['error'] as String? ?? 'فشل جلب التفاصيل';
           _isLoading = false;
         });
       }

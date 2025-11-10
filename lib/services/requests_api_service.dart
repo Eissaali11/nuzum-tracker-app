@@ -921,7 +921,7 @@ class RequestsApiService {
           'vehicle_id': request.vehicleId.toString(), // تحويل إلى String
           'service_type': request.serviceType,
           if (request.requestedDate != null)
-            'requested_date': request.requestedDate!.toIso8601String().split('T')[0], // YYYY-MM-DD فقط
+            'scheduled_date': request.requestedDate!.toIso8601String().split('T')[0], // YYYY-MM-DD فقط - حسب الوثائق
           if (request.manualCarInfo != null && request.manualCarInfo!.isNotEmpty)
             'manual_car_info': request.manualCarInfo,
           // أسماء الحقول الصحيحة حسب التوثيق
@@ -948,26 +948,27 @@ class RequestsApiService {
         });
 
         debugPrint('🔄 [RequestsAPI] Trying specialized car wash path: ${ApiConfig.createCarWashPath}');
-        // استخدام Dio جديد بدون Content-Type افتراضي للطلبات multipart
+        // استخدام Dio جديد مع URL كامل للطلبات multipart
         final token = await AuthService.getToken();
+        final fullUrl = '${ApiConfig.baseUrl}${ApiConfig.createCarWashPath}';
+        debugPrint('📤 [RequestsAPI] Full URL: $fullUrl');
+        
+        // إنشاء Dio instance جديد بدون أي headers افتراضية
         final multipartDio = Dio(
           BaseOptions(
             baseUrl: ApiConfig.baseUrl,
             connectTimeout: ApiConfig.timeoutDuration,
             receiveTimeout: ApiConfig.timeoutDuration,
-            headers: {
-              if (token != null) 'Authorization': 'Bearer $token',
-              // لا نضبط Content-Type هنا - Dio سيفعل ذلك تلقائياً عند إرسال FormData
-            },
+            // لا نضيف أي headers هنا - سنضيفها في Options
           ),
         );
         
-        // إزالة أي Content-Type موجود مسبقاً لضمان أن Dio يضبطه تلقائياً
+        // إزالة أي Content-Type موجود مسبقاً
         multipartDio.options.headers.remove('Content-Type');
         
         debugPrint('📤 [RequestsAPI] Sending multipart request with ${formData.files.length} files');
         debugPrint('📋 [RequestsAPI] Form data fields: ${formData.fields.map((e) => '${e.key}: ${e.value}').join(', ')}');
-        debugPrint('📋 [RequestsAPI] Form data files: ${formData.files.map((e) => e.key).join(', ')}');
+        debugPrint('📋 [RequestsAPI] Form data files: ${formData.files.map((e) => '${e.key}: ${e.value.filename}').join(', ')}');
         
         final response = await multipartDio.post(
           ApiConfig.createCarWashPath, // POST /api/v1/requests/create-car-wash
@@ -976,9 +977,10 @@ class RequestsApiService {
           options: Options(
             headers: {
               if (token != null) 'Authorization': 'Bearer $token',
-              // لا نضبط Content-Type - Dio سيفعل ذلك تلقائياً مع boundary
+              // لا نضبط Content-Type - Dio سيفعل ذلك تلقائياً مع boundary عند استخدام FormData
             },
-            contentType: null, // السماح لـ Dio بضبط Content-Type تلقائياً
+            // لا نضبط contentType - Dio سيفعل ذلك تلقائياً مع boundary
+            contentType: null,
           ),
         );
 
@@ -1018,7 +1020,7 @@ class RequestsApiService {
             'vehicle_id': request.vehicleId.toString(), // تحويل إلى String
             'service_type': request.serviceType,
             if (request.requestedDate != null)
-              'requested_date': request.requestedDate!.toIso8601String().split('T')[0], // YYYY-MM-DD فقط
+              'scheduled_date': request.requestedDate!.toIso8601String().split('T')[0], // YYYY-MM-DD فقط - حسب الوثائق
             if (request.manualCarInfo != null && request.manualCarInfo!.isNotEmpty)
               'manual_car_info': request.manualCarInfo,
             // أسماء الحقول الصحيحة حسب التوثيق
@@ -1044,25 +1046,25 @@ class RequestsApiService {
             ),
           });
 
-          // استخدام Dio جديد بدون Content-Type افتراضي
+          // استخدام Dio جديد مع baseUrl
           final token = await AuthService.getToken();
+          debugPrint('📤 [RequestsAPI] Unified path: ${ApiConfig.requestsBasePath}');
+          
           final multipartDio = Dio(
             BaseOptions(
               baseUrl: ApiConfig.baseUrl,
               connectTimeout: ApiConfig.timeoutDuration,
               receiveTimeout: ApiConfig.timeoutDuration,
-              headers: {
-                if (token != null) 'Authorization': 'Bearer $token',
-              },
+              // لا نضيف أي headers هنا - سنضيفها في Options
             ),
           );
           
-          // إزالة أي Content-Type موجود مسبقاً لضمان أن Dio يضبطه تلقائياً
+          // إزالة أي Content-Type موجود مسبقاً
           multipartDio.options.headers.remove('Content-Type');
           
           debugPrint('📤 [RequestsAPI] Sending multipart request to unified path with ${formData.files.length} files');
           debugPrint('📋 [RequestsAPI] Form data fields: ${formData.fields.map((e) => '${e.key}: ${e.value}').join(', ')}');
-          debugPrint('📋 [RequestsAPI] Form data files: ${formData.files.map((e) => e.key).join(', ')}');
+          debugPrint('📋 [RequestsAPI] Form data files: ${formData.files.map((e) => '${e.key}: ${e.value.filename}').join(', ')}');
           
           try {
             final response = await multipartDio.post(
@@ -1072,9 +1074,10 @@ class RequestsApiService {
               options: Options(
                 headers: {
                   if (token != null) 'Authorization': 'Bearer $token',
-                  // لا نضبط Content-Type - Dio سيفعل ذلك تلقائياً مع boundary
+                  // لا نضبط Content-Type - Dio سيفعل ذلك تلقائياً مع boundary عند استخدام FormData
                 },
-                contentType: null, // السماح لـ Dio بضبط Content-Type تلقائياً
+                // لا نضبط contentType - Dio سيفعل ذلك تلقائياً مع boundary
+                contentType: null,
               ),
             );
 
@@ -1127,38 +1130,155 @@ class RequestsApiService {
 
   /// ============================================
   /// 🔍 إنشاء طلب فحص سيارة - Create Car Inspection
+  /// POST /api/v1/requests/create-car-inspection
+  /// Content-Type: multipart/form-data
   /// ============================================
-  static Future<Map<String, dynamic>> createCarInspection(
-    CarInspectionRequest request,
-  ) async {
-    // محاولة المسار المتخصص أولاً
+  static Future<Map<String, dynamic>> createCarInspection({
+    required int vehicleId,
+    required String inspectionType,
+    required DateTime inspectionDate,
+    String? notes,
+    required List<File> files,
+    ProgressCallback? onProgress,
+  }) async {
     try {
-      debugPrint('🔄 [RequestsAPI] Trying specialized car inspection path: ${ApiConfig.createCarInspectionPath}');
-      final response = await dio.post(
-        ApiConfig.createCarInspectionPath, // POST /api/v1/requests/create-car-inspection
-        data: request.toJson(),
-      );
+      // التحقق من عدد الملفات
+      final images = files.where((f) {
+        final ext = f.path.split('.').last.toLowerCase();
+        return ['jpg', 'jpeg', 'png', 'heic'].contains(ext);
+      }).toList();
+      final videos = files.where((f) {
+        final ext = f.path.split('.').last.toLowerCase();
+        return ['mp4', 'mov', 'avi'].contains(ext);
+      }).toList();
 
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        final data = response.data as Map<String, dynamic>;
-        if (data['success'] == true) {
-          return {
-            'success': true,
-            'message': data['message'] ?? 'تم إنشاء الطلب بنجاح',
-            'data': {
-              'request_id': data['data']['request_id'],
-              'folder_url': data['data']['folder_url'],
-            },
-          };
+      if (images.isEmpty) {
+        return {'success': false, 'error': 'يجب رفع صورة واحدة على الأقل'};
+      }
+      if (images.length > 20) {
+        return {'success': false, 'error': 'الحد الأقصى 20 صورة'};
+      }
+      if (videos.length > 3) {
+        return {'success': false, 'error': 'الحد الأقصى 3 فيديوهات'};
+      }
+
+      // ضغط الصور
+      final compressedFiles = <File>[];
+      for (final file in files) {
+        final ext = file.path.split('.').last.toLowerCase();
+        if (['jpg', 'jpeg', 'png', 'heic'].contains(ext)) {
+          compressedFiles.add(await _compressImage(file));
+        } else {
+          compressedFiles.add(file);
         }
       }
 
-      return {
-        'success': false,
-        'error': response.data['error'] ?? 'فشل إنشاء الطلب',
-      };
+      // إنشاء FormData
+      final formData = FormData.fromMap({
+        'vehicle_id': vehicleId,
+        'inspection_type': inspectionType,
+        'inspection_date': inspectionDate.toIso8601String().split('T')[0],
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
+        'files': await Future.wait(
+          compressedFiles.map((f) => MultipartFile.fromFile(
+            f.path,
+            filename: f.path.split('/').last,
+          )),
+        ),
+      });
+
+      debugPrint('🔄 [RequestsAPI] Creating car inspection with ${files.length} files');
+      debugPrint('📋 [RequestsAPI] Vehicle ID: $vehicleId');
+      debugPrint('📋 [RequestsAPI] Inspection Type: $inspectionType');
+      debugPrint('📋 [RequestsAPI] Inspection Date: ${inspectionDate.toIso8601String().split('T')[0]}');
+      debugPrint('📋 [RequestsAPI] Files count: ${compressedFiles.length}');
+      
+      final token = await AuthService.getToken();
+      
+      // إنشاء Dio instance جديد بدون أي headers افتراضية
+      final multipartDio = Dio(
+        BaseOptions(
+          baseUrl: ApiConfig.baseUrl,
+          connectTimeout: ApiConfig.timeoutDuration,
+          receiveTimeout: ApiConfig.timeoutDuration,
+          // لا نضيف أي headers هنا - سنضيفها في Options
+        ),
+      );
+      
+      // إزالة أي Content-Type موجود مسبقاً
+      multipartDio.options.headers.remove('Content-Type');
+      
+      debugPrint('📤 [RequestsAPI] Sending multipart request to: ${ApiConfig.createCarInspectionPath}');
+      debugPrint('📋 [RequestsAPI] Form data fields: ${formData.fields.map((e) => '${e.key}: ${e.value}').join(', ')}');
+      debugPrint('📋 [RequestsAPI] Form data files: ${formData.files.length} files');
+
+      try {
+        final response = await multipartDio.post(
+          ApiConfig.createCarInspectionPath, // POST /api/v1/requests/create-car-inspection
+          data: formData,
+          onSendProgress: onProgress,
+          options: Options(
+            headers: {
+              if (token != null) 'Authorization': 'Bearer $token',
+              // لا نضبط Content-Type - Dio سيفعل ذلك تلقائياً مع boundary عند استخدام FormData
+            },
+            // لا نضبط contentType - Dio سيفعل ذلك تلقائياً مع boundary
+            contentType: null,
+          ),
+        );
+
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          final data = response.data as Map<String, dynamic>;
+          if (data['success'] == true) {
+            debugPrint('✅ [RequestsAPI] Car inspection created successfully: ${data['data']['request_id']}');
+            return {
+              'success': true,
+              'message': data['message'] ?? 'تم إنشاء الطلب بنجاح',
+              'data': {
+                'request_id': data['data']['request_id'],
+                'media_uploaded': data['data']['media_uploaded'],
+              },
+            };
+          }
+        }
+
+        debugPrint('⚠️ [RequestsAPI] Car inspection creation failed: ${response.statusCode}');
+        return {
+          'success': false,
+          'error': response.data['error'] ?? response.data['message'] ?? 'فشل إنشاء الطلب',
+        };
+      } on DioException catch (e) {
+        // معالجة خطأ 415 بشكل خاص
+        if (e.response?.statusCode == 415) {
+          debugPrint('❌ [RequestsAPI] 415 Unsupported Media Type - server configuration issue');
+          debugPrint('📋 [RequestsAPI] Response: ${e.response?.data}');
+          return {
+            'success': false,
+            'error': 'السيرفر لا يقبل نوع المحتوى المرسل. يرجى التحقق من إعدادات السيرفر.',
+          };
+        }
+        
+        // معالجة أخطاء أخرى
+        debugPrint('❌ [RequestsAPI] Create inspection DioException: ${e.type}');
+        debugPrint('📋 [RequestsAPI] Status code: ${e.response?.statusCode}');
+        debugPrint('📋 [RequestsAPI] Response: ${e.response?.data}');
+        
+        if (e.response != null) {
+          return {
+            'success': false,
+            'error': e.response!.data['error'] ?? 
+                     e.response!.data['message'] ?? 
+                     'فشل إنشاء الطلب: ${e.response!.statusCode}',
+          };
+        }
+        
+        rethrow;
+      } catch (e) {
+        debugPrint('❌ [RequestsAPI] Create inspection error: $e');
+        return {'success': false, 'error': 'حدث خطأ: $e'};
+      }
     } catch (e) {
-      debugPrint('❌ [RequestsAPI] Create inspection error: $e');
+      debugPrint('❌ [RequestsAPI] Create inspection outer error: $e');
       return {'success': false, 'error': 'حدث خطأ: $e'};
     }
   }
@@ -1260,6 +1380,7 @@ class RequestsApiService {
   /// ============================================
   static Future<Map<String, dynamic>> getRequestDetails(int requestId) async {
     try {
+      debugPrint('🔄 [RequestsAPI] Getting general request details: $requestId');
       final response = await dio.get(
         '${ApiConfig.requestDetailsPath}/$requestId',
       );
@@ -1267,11 +1388,30 @@ class RequestsApiService {
       if (response.statusCode == 200) {
         final data = response.data as Map<String, dynamic>;
         if (data['success'] == true) {
+          debugPrint('✅ [RequestsAPI] Request details retrieved successfully');
           return {'success': true, 'data': data['data']};
         }
       }
 
       return {'success': false, 'error': 'فشل جلب التفاصيل'};
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      
+      if (statusCode == 404) {
+        debugPrint('⚠️ [RequestsAPI] Request not found (404): $requestId');
+        return {'success': false, 'error': 'الطلب غير موجود'};
+      }
+      
+      debugPrint('❌ [RequestsAPI] Get details error: $e');
+      debugPrint('📋 [RequestsAPI] Status code: $statusCode');
+      debugPrint('📋 [RequestsAPI] Response: ${e.response?.data}');
+      
+      return {
+        'success': false,
+        'error': e.response?.data['message'] ?? 
+                 e.response?.data['error'] ?? 
+                 'فشل جلب التفاصيل',
+      };
     } catch (e) {
       debugPrint('❌ [RequestsAPI] Get details error: $e');
       return {'success': false, 'error': 'حدث خطأ: $e'};
@@ -1878,6 +2018,419 @@ class RequestsApiService {
         'success': false,
         'error': 'حدث خطأ أثناء رفع الصورة: $e',
       };
+    }
+  }
+
+  /// ============================================
+  /// 🚗 جلب تفاصيل طلب غسيل سيارة - Get Car Wash Request Details
+  /// GET /api/v1/requests/car-wash/{request_id}
+  /// ============================================
+  static Future<Map<String, dynamic>> getCarWashRequestDetails(int requestId) async {
+    try {
+      debugPrint('🔄 [RequestsAPI] Getting car wash request details: $requestId');
+      final response = await dio.get(
+        '/api/v1/requests/car-wash/$requestId',
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        if (data['success'] == true) {
+          debugPrint('✅ [RequestsAPI] Car wash details retrieved successfully');
+          return {
+            'success': true,
+            'data': data['request'],
+          };
+        }
+      }
+
+      return {
+        'success': false,
+        'error': response.data['message'] ?? 'فشل جلب التفاصيل',
+      };
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      
+      // معالجة الأخطاء الشائعة بشكل صامت (لأننا سنحاول المسار العام لاحقاً)
+      if (statusCode == 404) {
+        debugPrint('⚠️ [RequestsAPI] Car wash endpoint not found (404) - trying general endpoint');
+        return {'success': false, 'error': 'not_found'};
+      }
+      
+      if (statusCode == 405) {
+        debugPrint('⚠️ [RequestsAPI] Car wash method not allowed (405) - endpoint may not support GET');
+        return {'success': false, 'error': 'method_not_allowed'};
+      }
+      
+      debugPrint('❌ [RequestsAPI] Get car wash details error: $e');
+      return {'success': false, 'error': 'حدث خطأ: ${_getErrorMessage(e)}'};
+    } catch (e) {
+      debugPrint('❌ [RequestsAPI] Get car wash details error: $e');
+      return {'success': false, 'error': 'حدث خطأ: $e'};
+    }
+  }
+
+  /// ============================================
+  /// 🔍 جلب تفاصيل طلب فحص سيارة - Get Car Inspection Request Details
+  /// GET /api/v1/requests/car-inspection/{request_id}
+  /// ============================================
+  static Future<Map<String, dynamic>> getCarInspectionRequestDetails(int requestId) async {
+    try {
+      debugPrint('🔄 [RequestsAPI] Getting car inspection request details: $requestId');
+      final response = await dio.get(
+        '/api/v1/requests/car-inspection/$requestId',
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        if (data['success'] == true) {
+          return {
+            'success': true,
+            'data': data['request'],
+          };
+        }
+      }
+
+      return {
+        'success': false,
+        'error': response.data['message'] ?? 'فشل جلب التفاصيل',
+      };
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      
+      // معالجة الأخطاء الشائعة بشكل صامت (لأننا سنحاول المسار العام لاحقاً)
+      if (statusCode == 404) {
+        debugPrint('⚠️ [RequestsAPI] Car inspection endpoint not found (404) - trying general endpoint');
+        return {'success': false, 'error': 'not_found'};
+      }
+      
+      if (statusCode == 405) {
+        debugPrint('⚠️ [RequestsAPI] Car inspection method not allowed (405) - endpoint may not support GET');
+        return {'success': false, 'error': 'method_not_allowed'};
+      }
+      
+      debugPrint('❌ [RequestsAPI] Get car inspection details error: $e');
+      return {'success': false, 'error': 'حدث خطأ: ${_getErrorMessage(e)}'};
+    } catch (e) {
+      debugPrint('❌ [RequestsAPI] Get car inspection details error: $e');
+      return {'success': false, 'error': 'حدث خطأ: $e'};
+    }
+  }
+
+  /// ============================================
+  /// 🚗 قائمة طلبات الغسيل - Get Car Wash Requests
+  /// GET /api/v1/requests/car-wash
+  /// ============================================
+  static Future<Map<String, dynamic>> getCarWashRequests({
+    String? status,
+    int? vehicleId,
+    DateTime? fromDate,
+    DateTime? toDate,
+    int page = 1,
+    int perPage = 20,
+  }) async {
+    try {
+      final queryParams = <String, dynamic>{
+        'page': page,
+        'per_page': perPage,
+        if (status != null && status.isNotEmpty) 'status': status,
+        if (vehicleId != null) 'vehicle_id': vehicleId,
+        if (fromDate != null) 'from_date': fromDate.toIso8601String().split('T')[0],
+        if (toDate != null) 'to_date': toDate.toIso8601String().split('T')[0],
+      };
+
+      debugPrint('🔄 [RequestsAPI] Getting car wash requests: $queryParams');
+      final response = await dio.get(
+        '/api/v1/requests/car-wash',
+        queryParameters: queryParams,
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        if (data['success'] == true) {
+          return {
+            'success': true,
+            'data': data['requests'],
+            'pagination': data['pagination'],
+          };
+        }
+      }
+
+      return {
+        'success': false,
+        'error': response.data['message'] ?? 'فشل جلب الطلبات',
+      };
+    } catch (e) {
+      debugPrint('❌ [RequestsAPI] Get car wash requests error: $e');
+      return {'success': false, 'error': 'حدث خطأ: $e'};
+    }
+  }
+
+  /// ============================================
+  /// 🔍 قائمة طلبات الفحص - Get Car Inspection Requests
+  /// GET /api/v1/requests/car-inspection
+  /// ============================================
+  static Future<Map<String, dynamic>> getCarInspectionRequests({
+    String? status,
+    int? vehicleId,
+    DateTime? fromDate,
+    DateTime? toDate,
+    int page = 1,
+    int perPage = 20,
+  }) async {
+    try {
+      final queryParams = <String, dynamic>{
+        'page': page,
+        'per_page': perPage,
+        if (status != null && status.isNotEmpty) 'status': status,
+        if (vehicleId != null) 'vehicle_id': vehicleId,
+        if (fromDate != null) 'from_date': fromDate.toIso8601String().split('T')[0],
+        if (toDate != null) 'to_date': toDate.toIso8601String().split('T')[0],
+      };
+
+      debugPrint('🔄 [RequestsAPI] Getting car inspection requests: $queryParams');
+      final response = await dio.get(
+        '/api/v1/requests/car-inspection',
+        queryParameters: queryParams,
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        if (data['success'] == true) {
+          return {
+            'success': true,
+            'data': data['requests'],
+            'pagination': data['pagination'],
+          };
+        }
+      }
+
+      return {
+        'success': false,
+        'error': response.data['message'] ?? 'فشل جلب الطلبات',
+      };
+    } catch (e) {
+      debugPrint('❌ [RequestsAPI] Get car inspection requests error: $e');
+      return {'success': false, 'error': 'حدث خطأ: $e'};
+    }
+  }
+
+  /// ============================================
+  /// ✏️ تحديث طلب غسيل سيارة - Update Car Wash Request
+  /// PUT /api/v1/requests/car-wash/{request_id}
+  /// ============================================
+  static Future<Map<String, dynamic>> updateCarWashRequest({
+    required int requestId,
+    int? vehicleId,
+    String? serviceType,
+    DateTime? scheduledDate,
+    String? notes,
+    File? photoPlate,
+    File? photoFront,
+    File? photoBack,
+    File? photoRightSide,
+    File? photoLeftSide,
+    List<int>? deleteMediaIds,
+  }) async {
+    try {
+      final formData = FormData.fromMap({
+        if (vehicleId != null) 'vehicle_id': vehicleId,
+        if (serviceType != null) 'service_type': serviceType,
+        if (scheduledDate != null) 'scheduled_date': scheduledDate.toIso8601String().split('T')[0],
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
+        if (photoPlate != null)
+          'photo_plate': await MultipartFile.fromFile(photoPlate.path),
+        if (photoFront != null)
+          'photo_front': await MultipartFile.fromFile(photoFront.path),
+        if (photoBack != null)
+          'photo_back': await MultipartFile.fromFile(photoBack.path),
+        if (photoRightSide != null)
+          'photo_right_side': await MultipartFile.fromFile(photoRightSide.path),
+        if (photoLeftSide != null)
+          'photo_left_side': await MultipartFile.fromFile(photoLeftSide.path),
+        if (deleteMediaIds != null && deleteMediaIds.isNotEmpty)
+          'delete_media_ids': deleteMediaIds,
+      });
+
+      debugPrint('🔄 [RequestsAPI] Updating car wash request: $requestId');
+      final token = await AuthService.getToken();
+      final multipartDio = Dio(
+        BaseOptions(
+          baseUrl: ApiConfig.baseUrl,
+          connectTimeout: ApiConfig.timeoutDuration,
+          receiveTimeout: ApiConfig.timeoutDuration,
+          headers: {
+            if (token != null) 'Authorization': 'Bearer $token',
+          },
+        ),
+      );
+      multipartDio.options.headers.remove('Content-Type');
+
+      final response = await multipartDio.put(
+        '/api/v1/requests/car-wash/$requestId',
+        data: formData,
+        options: Options(
+          headers: {
+            if (token != null) 'Authorization': 'Bearer $token',
+          },
+          contentType: null,
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        if (data['success'] == true) {
+          return {
+            'success': true,
+            'message': data['message'] ?? 'تم تحديث الطلب بنجاح',
+            'data': data['request'],
+          };
+        }
+      }
+
+      return {
+        'success': false,
+        'error': response.data['message'] ?? 'فشل تحديث الطلب',
+      };
+    } catch (e) {
+      debugPrint('❌ [RequestsAPI] Update car wash error: $e');
+      return {'success': false, 'error': 'حدث خطأ: $e'};
+    }
+  }
+
+  /// ============================================
+  /// ✏️ تحديث طلب فحص سيارة - Update Car Inspection Request
+  /// PUT /api/v1/requests/car-inspection/{request_id}
+  /// ============================================
+  static Future<Map<String, dynamic>> updateCarInspectionRequest({
+    required int requestId,
+    int? vehicleId,
+    String? inspectionType,
+    DateTime? inspectionDate,
+    String? notes,
+    List<File>? newFiles,
+    List<int>? deleteMediaIds,
+  }) async {
+    try {
+      final formData = FormData.fromMap({
+        if (vehicleId != null) 'vehicle_id': vehicleId,
+        if (inspectionType != null) 'inspection_type': inspectionType,
+        if (inspectionDate != null) 'inspection_date': inspectionDate.toIso8601String().split('T')[0],
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
+        if (newFiles != null && newFiles.isNotEmpty)
+          'files': await Future.wait(
+            newFiles.map((f) => MultipartFile.fromFile(f.path)),
+          ),
+        if (deleteMediaIds != null && deleteMediaIds.isNotEmpty)
+          'delete_media_ids': deleteMediaIds,
+      });
+
+      debugPrint('🔄 [RequestsAPI] Updating car inspection request: $requestId');
+      final token = await AuthService.getToken();
+      final multipartDio = Dio(
+        BaseOptions(
+          baseUrl: ApiConfig.baseUrl,
+          connectTimeout: ApiConfig.timeoutDuration,
+          receiveTimeout: ApiConfig.timeoutDuration,
+          headers: {
+            if (token != null) 'Authorization': 'Bearer $token',
+          },
+        ),
+      );
+      multipartDio.options.headers.remove('Content-Type');
+
+      final response = await multipartDio.put(
+        '/api/v1/requests/car-inspection/$requestId',
+        data: formData,
+        options: Options(
+          headers: {
+            if (token != null) 'Authorization': 'Bearer $token',
+          },
+          contentType: null,
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        if (data['success'] == true) {
+          return {
+            'success': true,
+            'message': data['message'] ?? 'تم تحديث الطلب بنجاح',
+            'data': data['request'],
+          };
+        }
+      }
+
+      return {
+        'success': false,
+        'error': response.data['message'] ?? 'فشل تحديث الطلب',
+      };
+    } catch (e) {
+      debugPrint('❌ [RequestsAPI] Update car inspection error: $e');
+      return {'success': false, 'error': 'حدث خطأ: $e'};
+    }
+  }
+
+  /// ============================================
+  /// 🗑️ حذف صورة من طلب غسيل - Delete Car Wash Media
+  /// DELETE /api/v1/requests/car-wash/{request_id}/media/{media_id}
+  /// ============================================
+  static Future<Map<String, dynamic>> deleteCarWashMedia(int requestId, int mediaId) async {
+    try {
+      debugPrint('🔄 [RequestsAPI] Deleting car wash media: $requestId/$mediaId');
+      final response = await dio.delete(
+        '/api/v1/requests/car-wash/$requestId/media/$mediaId',
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        if (data['success'] == true) {
+          return {
+            'success': true,
+            'message': data['message'] ?? 'تم حذف الصورة بنجاح',
+            'remaining_media_count': data['remaining_media_count'],
+          };
+        }
+      }
+
+      return {
+        'success': false,
+        'error': response.data['message'] ?? 'فشل حذف الصورة',
+      };
+    } catch (e) {
+      debugPrint('❌ [RequestsAPI] Delete car wash media error: $e');
+      return {'success': false, 'error': 'حدث خطأ: $e'};
+    }
+  }
+
+  /// ============================================
+  /// 🗑️ حذف ملف من طلب فحص - Delete Car Inspection Media
+  /// DELETE /api/v1/requests/car-inspection/{request_id}/media/{media_id}
+  /// ============================================
+  static Future<Map<String, dynamic>> deleteCarInspectionMedia(int requestId, int mediaId) async {
+    try {
+      debugPrint('🔄 [RequestsAPI] Deleting car inspection media: $requestId/$mediaId');
+      final response = await dio.delete(
+        '/api/v1/requests/car-inspection/$requestId/media/$mediaId',
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        if (data['success'] == true) {
+          return {
+            'success': true,
+            'message': data['message'] ?? 'تم حذف الملف بنجاح',
+            'remaining_media': data['remaining_media'],
+          };
+        }
+      }
+
+      return {
+        'success': false,
+        'error': response.data['message'] ?? 'فشل حذف الملف',
+      };
+    } catch (e) {
+      debugPrint('❌ [RequestsAPI] Delete car inspection media error: $e');
+      return {'success': false, 'error': 'حدث خطأ: $e'};
     }
   }
 
