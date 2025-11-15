@@ -3,23 +3,34 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
+// import 'package:workmanager/workmanager.dart';  // معلق مؤقتاً - Foreground Service كافٍ
 import 'package:nuzum_tracker/services/location_service.dart';
 import 'package:nuzum_tracker/services/auth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 
 // -----------------------------------------------------------------------------
-// تهيئة الخدمة (لا حاجة لـ workmanager)
+// MethodChannel للتواصل مع Foreground Service
+// -----------------------------------------------------------------------------
+const MethodChannel _serviceChannel = MethodChannel('com.nuzum.tracker/service');
+
+// -----------------------------------------------------------------------------
+// EventChannel لاستقبال تحديثات الموقع من Foreground Service
+// -----------------------------------------------------------------------------
+StreamSubscription<dynamic>? _locationEventSubscription;
+
+// -----------------------------------------------------------------------------
+// تهيئة الخدمة - Foreground Service فقط (WorkManager معلق مؤقتاً)
 // -----------------------------------------------------------------------------
 Future<void> initializeService() async {
   try {
-    debugPrint(
-      '✅ [Service] Service initialization (using geolocator directly)',
-    );
+    // Foreground Service يعمل بشكل مستقل ويرسل البيانات مباشرة للسيرفر
+    // لا حاجة لـ WorkManager - Foreground Service كافٍ تماماً
+    debugPrint('✅ [Service] Foreground Service ready');
+    debugPrint('ℹ️ [Service] Using Foreground Service only (WorkManager disabled)');
   } catch (e, stackTrace) {
     debugPrint('❌ [Service] Error initializing service: $e');
     debugPrint('❌ [Service] Stack trace: $stackTrace');
-    rethrow;
   }
 }
 
@@ -72,6 +83,19 @@ Future<void> startLocationTracking() async {
     // بدء تتبع الموقع المستمر
     debugPrint("🌍 [Tracking] Starting continuous location tracking...");
 
+    // بدء Foreground Service (يعمل حتى عند إغلاق التطبيق)
+    try {
+      await _startForegroundService();
+      debugPrint('✅ [Tracking] Foreground Service started');
+    } catch (e) {
+      debugPrint('⚠️ [Tracking] Could not start Foreground Service: $e');
+      // نستمر مع الطريقة العادية كحل احتياطي
+    }
+
+    // WorkManager معلق مؤقتاً - Foreground Service يعمل بشكل مستقل
+    // Foreground Service يرسل البيانات مباشرة للسيرفر كل 10 ثواني
+    debugPrint('ℹ️ [Tracking] Using Foreground Service only (WorkManager disabled)');
+
     // طلب Wake Lock لمنع النظام من إيقاف التطبيق
     try {
       await _requestWakeLock();
@@ -85,6 +109,35 @@ Future<void> startLocationTracking() async {
     } catch (e) {
       debugPrint('⚠️ [Tracking] Could not request battery optimization exemption: $e');
     }
+    
+    // إعداد EventChannel لاستقبال تحديثات الموقع من Foreground Service
+    const EventChannel locationEventChannel = EventChannel('com.nuzum.tracker/location_events');
+    _locationEventSubscription = locationEventChannel.receiveBroadcastStream().listen(
+      (dynamic data) {
+        try {
+          final map = data as Map<dynamic, dynamic>;
+          final position = Position(
+            latitude: map['latitude'] as double,
+            longitude: map['longitude'] as double,
+            timestamp: DateTime.fromMillisecondsSinceEpoch(map['timestamp'] as int),
+            accuracy: map['accuracy'] as double,
+            altitude: 0,
+            altitudeAccuracy: 0,
+            heading: (map['heading'] as num?)?.toDouble() ?? 0,
+            headingAccuracy: 0,
+            speed: ((map['speed'] as num?)?.toDouble() ?? 0) / 3.6, // تحويل من km/h إلى m/s
+            speedAccuracy: 0,
+          );
+          _handleNewPosition(position);
+          _sendLocationUpdate();
+        } catch (e) {
+          debugPrint('❌ [Tracking] Error processing location from Service: $e');
+        }
+      },
+      onError: (error) {
+        debugPrint('❌ [Tracking] Location event stream error: $error');
+      },
+    );
 
     // بدء تتبع الموقع مع إعدادات محسّنة للخلفية
     _positionStreamSubscription =
@@ -441,6 +494,16 @@ Future<void> _sendLocationUpdate() async {
 // -----------------------------------------------------------------------------
 Future<void> stopLocationTracking() async {
   try {
+    // إيقاف Foreground Service
+    try {
+      await _stopForegroundService();
+      debugPrint('✅ [Tracking] Foreground Service stopped');
+    } catch (e) {
+      debugPrint('⚠️ [Tracking] Could not stop Foreground Service: $e');
+    }
+
+    // WorkManager معلق - لا حاجة لإلغاء التسجيل
+
     _locationTimer?.cancel();
     _locationTimer = null;
 
@@ -452,6 +515,9 @@ Future<void> stopLocationTracking() async {
 
     await _positionStreamSubscription?.cancel();
     _positionStreamSubscription = null;
+
+    await _locationEventSubscription?.cancel();
+    _locationEventSubscription = null;
 
     _lastPosition = null;
     _currentSpeed = null;
@@ -511,6 +577,31 @@ Future<void> _requestBatteryOptimizationExemption() async {
     debugPrint('✅ [Tracking] Battery optimization exemption requested');
   } catch (e) {
     debugPrint('⚠️ [Tracking] Battery optimization exemption not available: $e');
+  }
+}
+
+// -----------------------------------------------------------------------------
+// بدء Foreground Service
+// -----------------------------------------------------------------------------
+Future<void> _startForegroundService() async {
+  try {
+    await _serviceChannel.invokeMethod('startForegroundService');
+    debugPrint('✅ [Tracking] Foreground Service start requested');
+  } catch (e) {
+    debugPrint('⚠️ [Tracking] Could not start Foreground Service: $e');
+    rethrow;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// إيقاف Foreground Service
+// -----------------------------------------------------------------------------
+Future<void> _stopForegroundService() async {
+  try {
+    await _serviceChannel.invokeMethod('stopForegroundService');
+    debugPrint('✅ [Tracking] Foreground Service stop requested');
+  } catch (e) {
+    debugPrint('⚠️ [Tracking] Could not stop Foreground Service: $e');
   }
 }
 

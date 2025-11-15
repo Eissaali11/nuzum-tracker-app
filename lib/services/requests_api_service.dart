@@ -918,10 +918,18 @@ class RequestsApiService {
       try {
         // استخدام أسماء الحقول الصحيحة حسب التوثيق: photo_plate, photo_front, إلخ
         final formData = FormData.fromMap({
-          'vehicle_id': request.vehicleId.toString(), // تحويل إلى String
+          // إرسال employee_id لربط الطلب بالمستخدم
+          'employee_id': request.employeeId,
+          // إرسال vehicle_id دائماً، واستخدم 0 عند الإدخال اليدوي
+          'vehicle_id': request.vehicleId,
           'service_type': request.serviceType,
-          if (request.requestedDate != null)
-            'scheduled_date': request.requestedDate!.toIso8601String().split('T')[0], // YYYY-MM-DD فقط - حسب الوثائق
+          if (request.requestedDate != null) ...{
+            // بعض الخوادم تستخدم scheduled_date وأخرى requested_date
+            'scheduled_date':
+                request.requestedDate!.toIso8601String().split('T')[0],
+            'requested_date':
+                request.requestedDate!.toIso8601String().split('T')[0],
+          },
           if (request.manualCarInfo != null && request.manualCarInfo!.isNotEmpty)
             'manual_car_info': request.manualCarInfo,
           // أسماء الحقول الصحيحة حسب التوثيق
@@ -1009,115 +1017,134 @@ class RequestsApiService {
           'error': response.data['error'] ?? 'فشل إنشاء الطلب',
         };
       } on DioException catch (e) {
-        // معالجة خطأ 415 و 404 - جرب المسار الموحد
+        // معالجة أخطاء شائعة: 415/404/400 - جرب المسار الموحد وأظهر رسالة واضحة
         final statusCode = e.response?.statusCode;
-        if (statusCode == 415 || statusCode == 404) {
-          debugPrint('⚠️ [RequestsAPI] Specialized path returned $statusCode, trying unified path...');
-          
-          // استخدام أسماء الحقول الصحيحة حتى في المسار الموحد
-          final formData = FormData.fromMap({
-            'type': 'car_wash',
-            'vehicle_id': request.vehicleId.toString(), // تحويل إلى String
-            'service_type': request.serviceType,
-            if (request.requestedDate != null)
-              'scheduled_date': request.requestedDate!.toIso8601String().split('T')[0], // YYYY-MM-DD فقط - حسب الوثائق
-            if (request.manualCarInfo != null && request.manualCarInfo!.isNotEmpty)
-              'manual_car_info': request.manualCarInfo,
-            // أسماء الحقول الصحيحة حسب التوثيق
-            'photo_plate': await MultipartFile.fromFile(
-              compressedPhotos['plate']!.path,
-              filename: 'plate_${DateTime.now().millisecondsSinceEpoch}.jpg',
-            ),
-            'photo_front': await MultipartFile.fromFile(
-              compressedPhotos['front']!.path,
-              filename: 'front_${DateTime.now().millisecondsSinceEpoch}.jpg',
-            ),
-            'photo_back': await MultipartFile.fromFile(
-              compressedPhotos['back']!.path,
-              filename: 'back_${DateTime.now().millisecondsSinceEpoch}.jpg',
-            ),
-            'photo_right_side': await MultipartFile.fromFile(
-              compressedPhotos['right_side']!.path,
-              filename: 'right_side_${DateTime.now().millisecondsSinceEpoch}.jpg',
-            ),
-            'photo_left_side': await MultipartFile.fromFile(
-              compressedPhotos['left_side']!.path,
-              filename: 'left_side_${DateTime.now().millisecondsSinceEpoch}.jpg',
-            ),
-          });
+        if (statusCode == 400) {
+          final errorData = e.response?.data;
+          String errorMessage = 'فشل إنشاء الطلب';
+          if (errorData is Map<String, dynamic>) {
+            errorMessage = errorData['error'] as String? ??
+                errorData['message'] as String? ??
+                errorData['errors']?.toString() ??
+                errorMessage;
+          }
+          debugPrint('❌ [RequestsAPI] 400 Bad Request: $errorMessage');
+          // سنستمر ونحاول المسار الموحد أيضاً
+        }
+        if (statusCode == 415 || statusCode == 404 || statusCode == 400) {
+          debugPrint('⚠️ [RequestsAPI] Specialized path returned $statusCode, trying JSON-first then upload flow...');
 
-          // استخدام Dio جديد مع baseUrl
-          final token = await AuthService.getToken();
-          debugPrint('📤 [RequestsAPI] Unified path: ${ApiConfig.requestsBasePath}');
-          
-          final multipartDio = Dio(
-            BaseOptions(
-              baseUrl: ApiConfig.baseUrl,
-              connectTimeout: ApiConfig.timeoutDuration,
-              receiveTimeout: ApiConfig.timeoutDuration,
-              // لا نضيف أي headers هنا - سنضيفها في Options
-            ),
-          );
-          
-          // إزالة أي Content-Type موجود مسبقاً
-          multipartDio.options.headers.remove('Content-Type');
-          
-          debugPrint('📤 [RequestsAPI] Sending multipart request to unified path with ${formData.files.length} files');
-          debugPrint('📋 [RequestsAPI] Form data fields: ${formData.fields.map((e) => '${e.key}: ${e.value}').join(', ')}');
-          debugPrint('📋 [RequestsAPI] Form data files: ${formData.files.map((e) => '${e.key}: ${e.value.filename}').join(', ')}');
-          
+          // 1) أنشئ الطلب بدون ملفات (JSON فقط)
           try {
-            final response = await multipartDio.post(
+            debugPrint('📤 [RequestsAPI] Creating car wash request as JSON first...');
+            final jsonResponse = await dio.post(
               ApiConfig.requestsBasePath, // POST /api/v1/requests
-              data: formData,
-              onSendProgress: onProgress,
-              options: Options(
-                headers: {
-                  if (token != null) 'Authorization': 'Bearer $token',
-                  // لا نضبط Content-Type - Dio سيفعل ذلك تلقائياً مع boundary عند استخدام FormData
-                },
-                // لا نضبط contentType - Dio سيفعل ذلك تلقائياً مع boundary
-                contentType: null,
-              ),
+              data: {
+                'type': 'car_wash',
+                'employee_id': request.employeeId,
+                'vehicle_id': request.vehicleId,
+                'service_type': request.serviceType,
+                if (request.requestedDate != null)
+                  'requested_date':
+                      request.requestedDate!.toIso8601String().split('T')[0],
+                if (request.manualCarInfo != null &&
+                    request.manualCarInfo!.isNotEmpty)
+                  'manual_car_info': request.manualCarInfo,
+              },
             );
 
-            if (response.statusCode == 200 || response.statusCode == 201) {
-              final data = response.data as Map<String, dynamic>;
-              if (data['success'] == true) {
-                return {
-                  'success': true,
-                  'message': data['message'] ?? 'تم إنشاء الطلب بنجاح',
-                  'data': {
-                    'request_id': data['data']['request_id'],
-                    'status': data['data']['status'],
-                  },
-                };
-              }
-            }
+                if (jsonResponse.statusCode == 200 ||
+                    jsonResponse.statusCode == 201) {
+                  final body = jsonResponse.data as Map<String, dynamic>;
+                  if (body['success'] == true) {
+                    final createdId =
+                        body['data']?['request_id'] ?? body['data']?['id'];
+                    if (createdId is int) {
+                      debugPrint(
+                          '✅ [RequestsAPI] Car wash request created as JSON. ID: $createdId. Now uploading images...');
 
-            // معالجة خطأ 415 في المسار الموحد أيضاً
-            if (response.statusCode == 415) {
-              debugPrint('⚠️ [RequestsAPI] Unified path also returned 415, this is a server configuration issue');
-              return {
-                'success': false,
-                'error': 'السيرفر لا يقبل نوع المحتوى المرسل. يرجى التحقق من إعدادات السيرفر.',
-              };
-            }
+                      // 2) ارفع كل صورة بشكل منفصل باستخدام endpoint الرفع العام
+                      int uploaded = 0;
+                      final List<File> filesToUpload = [
+                        compressedPhotos['plate']!,
+                        compressedPhotos['front']!,
+                        compressedPhotos['back']!,
+                        compressedPhotos['right_side']!,
+                        compressedPhotos['left_side']!,
+                      ];
 
+                      for (final file in filesToUpload) {
+                        final uploadResult = await _uploadInvoiceImage(
+                          createdId,
+                          file,
+                          onProgress: onProgress,
+                        );
+                        if (uploadResult['success'] == true) {
+                          uploaded++;
+                        } else {
+                          debugPrint(
+                              '⚠️ [RequestsAPI] Upload one image failed: ${uploadResult['error']}');
+                        }
+                      }
+
+                      if (uploaded > 0) {
+                        return {
+                          'success': true,
+                          'message':
+                              'تم إنشاء الطلب ورفع $uploaded من أصل ${filesToUpload.length} صورة',
+                          'data': {
+                            'request_id': createdId,
+                            'status': body['data']?['status'] ?? 'pending',
+                            'uploaded_count': uploaded,
+                          },
+                        };
+                      } else {
+                        return {
+                          'success': true,
+                          'message':
+                              'تم إنشاء الطلب بنجاح، لكن فشل رفع الصور. يمكنك رفعها لاحقاً من تفاصيل الطلب',
+                          'data': {
+                            'request_id': createdId,
+                            'status': body['data']?['status'] ?? 'pending',
+                            'uploaded_count': 0,
+                          },
+                        };
+                      }
+                    }
+                  }
+                }
+
+            // إذا لم يتم الإنشاء بالـ JSON
             return {
               'success': false,
-              'error': response.data['error'] ?? 'فشل إنشاء الطلب',
+              'error': jsonResponse.data is Map
+                  ? (jsonResponse.data['error'] ??
+                      jsonResponse.data['message'] ??
+                      'فشل إنشاء الطلب (JSON)')
+                  : 'فشل إنشاء الطلب (JSON)',
             };
-          } on DioException catch (unifiedError) {
-            // معالجة خطأ 415 في المسار الموحد
-            if (unifiedError.response?.statusCode == 415) {
-              debugPrint('⚠️ [RequestsAPI] Unified path returned 415 - server configuration issue');
+          } catch (jsonCreateError) {
+            debugPrint(
+                '❌ [RequestsAPI] JSON-first flow failed: $jsonCreateError');
+            if (jsonCreateError is DioException) {
+              final errorData = jsonCreateError.response?.data;
+              String errorMessage = 'فشل إنشاء الطلب';
+              if (errorData is Map<String, dynamic>) {
+                errorMessage = errorData['error'] as String? ??
+                    errorData['message'] as String? ??
+                    errorData['errors']?.toString() ??
+                    errorMessage;
+              }
               return {
                 'success': false,
-                'error': 'السيرفر لا يقبل نوع المحتوى المرسل. يرجى التحقق من إعدادات السيرفر.',
+                'error': errorMessage,
               };
             }
-            rethrow;
+            return {
+              'success': false,
+              'error':
+                  'السيرفر رفض multipart وأيضاً فشل إنشاء الطلب JSON: $jsonCreateError',
+            };
           }
         }
         rethrow;

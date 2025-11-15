@@ -42,7 +42,10 @@ android {
 }
 
 dependencies {
-   implementation("androidx.multidex:multidex:2.0.1") 
+   implementation("androidx.multidex:multidex:2.0.1")
+   // Google Play Services Location for FusedLocationProviderClient
+   // أحدث إصدار يدعم جميع الميزات الحديثة
+   implementation("com.google.android.gms:play-services-location:21.3.0")
 }
 
 flutter {

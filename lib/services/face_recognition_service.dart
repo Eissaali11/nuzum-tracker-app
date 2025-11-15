@@ -151,47 +151,76 @@ class FaceRecognitionService {
     };
   }
 
-  /// تقييم جودة الوجه
+  /// تقييم جودة الوجه (محسّن)
   FaceQuality assessFaceQuality(Face face) {
     double score = 0.0;
     int checks = 0;
 
-    // 1. حجم الوجه (يجب أن يكون كبيراً بما فيه الكفاية)
+    // 1. حجم الوجه (معايير أكثر مرونة)
     final faceArea = face.boundingBox.width * face.boundingBox.height;
-    if (faceArea > 10000) {
-      score += 0.3;
+    if (faceArea > 15000) {
+      score += 0.35; // حجم ممتاز
+    } else if (faceArea > 8000) {
+      score += 0.25; // حجم جيد
+    } else if (faceArea > 5000) {
+      score += 0.15; // حجم مقبول
     }
     checks++;
 
-    // 2. وجود Landmarks
-    if (face.landmarks.isNotEmpty) {
-      score += 0.3;
+    // 2. وجود Landmarks (كلما زاد العدد، كانت الجودة أفضل)
+    final landmarksCount = face.landmarks.length;
+    if (landmarksCount >= 10) {
+      score += 0.3; // جميع المعالم موجودة
+    } else if (landmarksCount >= 6) {
+      score += 0.2; // معظم المعالم موجودة
+    } else if (landmarksCount >= 3) {
+      score += 0.1; // بعض المعالم موجودة
     }
     checks++;
 
-    // 3. زاوية الرأس (يجب أن تكون مستقيمة)
+    // 3. زاوية الرأس (معايير أكثر مرونة)
     final yAngle = face.headEulerAngleY?.abs() ?? 0;
     final zAngle = face.headEulerAngleZ?.abs() ?? 0;
-    if (yAngle < 15 && zAngle < 15) {
-      score += 0.2;
+    if (yAngle < 10 && zAngle < 10) {
+      score += 0.25; // مستقيم تماماً
+    } else if (yAngle < 20 && zAngle < 20) {
+      score += 0.15; // مقبول
+    } else if (yAngle < 30 && zAngle < 30) {
+      score += 0.05; // مقبول بشكل محدود
     }
     checks++;
 
-    // 4. العيون مفتوحة
+    // 4. العيون مفتوحة (معايير أكثر مرونة)
     final leftEye = face.leftEyeOpenProbability ?? 0;
     final rightEye = face.rightEyeOpenProbability ?? 0;
-    if (leftEye > 0.5 && rightEye > 0.5) {
-      score += 0.2;
+    final avgEyeOpen = (leftEye + rightEye) / 2.0;
+    if (avgEyeOpen > 0.7) {
+      score += 0.2; // عيون مفتوحة تماماً
+    } else if (avgEyeOpen > 0.4) {
+      score += 0.1; // عيون شبه مفتوحة
+    } else if (avgEyeOpen > 0.2) {
+      score += 0.05; // عيون شبه مغلقة (مقبول)
+    }
+    checks++;
+
+    // 5. وضوح الوجه (بناءً على حجم الوجه نسبة إلى الصورة)
+    final faceWidthRatio = face.boundingBox.width / 1000.0; // تقدير نسبة العرض
+    final faceHeightRatio = face.boundingBox.height / 1000.0; // تقدير نسبة الارتفاع
+    if (faceWidthRatio > 0.15 && faceHeightRatio > 0.15) {
+      score += 0.1; // الوجه كبير وواضح
+    } else if (faceWidthRatio > 0.1 && faceHeightRatio > 0.1) {
+      score += 0.05; // الوجه متوسط الحجم
     }
     checks++;
 
     final qualityScore = score / checks;
     
-    if (qualityScore >= 0.8) {
+    // معايير أكثر مرونة
+    if (qualityScore >= 0.7) {
       return FaceQuality.excellent;
-    } else if (qualityScore >= 0.6) {
+    } else if (qualityScore >= 0.5) {
       return FaceQuality.good;
-    } else if (qualityScore >= 0.4) {
+    } else if (qualityScore >= 0.3) {
       return FaceQuality.fair;
     } else {
       return FaceQuality.poor;

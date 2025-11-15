@@ -49,7 +49,7 @@ class _AttendanceCheckInScreenState extends State<AttendanceCheckInScreen> {
 
       _cameraController = CameraController(
         _cameras![0],
-        ResolutionPreset.high,
+        ResolutionPreset.veryHigh, // استخدام دقة عالية جداً لتحسين جودة الصورة
         enableAudio: false,
       );
 
@@ -62,17 +62,19 @@ class _AttendanceCheckInScreenState extends State<AttendanceCheckInScreen> {
       });
 
       // بدء تحليل الوجه
-      _cameraController!.startImageStream(_processCameraImage);
+      await _cameraController!.startImageStream(_processCameraImage);
     } catch (e) {
       if (!mounted) return;
       setState(() {
+        _isInitialized = false;
         _statusMessage = 'فشل تهيئة الكاميرا: $e';
       });
+      debugPrint('❌ [Attendance] Camera initialization error: $e');
     }
   }
 
   Future<void> _processCameraImage(CameraImage image) async {
-    if (_isProcessing) return;
+    if (_isProcessing || !mounted) return;
 
     try {
       final result = await _faceService.detectFaceFromCameraImage(image);
@@ -80,19 +82,38 @@ class _AttendanceCheckInScreenState extends State<AttendanceCheckInScreen> {
       if (!mounted) return;
 
       if (result != null && result.hasFace && result.face != null) {
+        // تحديد رسالة بناءً على جودة الصورة
+        String qualityMessage = '';
+        if (result.quality == FaceQuality.excellent) {
+          qualityMessage = '✅ جودة ممتازة';
+        } else if (result.quality == FaceQuality.good) {
+          qualityMessage = '✅ جودة جيدة';
+        } else if (result.quality == FaceQuality.fair) {
+          qualityMessage = '⚠️ جودة مقبولة - يمكنك التحسين';
+        } else {
+          qualityMessage = '❌ جودة ضعيفة - اقترب من الكاميرا';
+        }
+        
         setState(() {
           _detectedFace = result.face;
           _confidence = result.confidence ?? 0.0;
-          _statusMessage = 'تم اكتشاف الوجه (${(_confidence * 100).toStringAsFixed(0)}%)';
+          _statusMessage = '$qualityMessage (${(_confidence * 100).toStringAsFixed(0)}%)';
         });
       } else {
-        setState(() {
-          _detectedFace = null;
-          _statusMessage = result?.message ?? 'انظر للكاميرا مباشرة';
-        });
+        if (mounted) {
+          setState(() {
+            _detectedFace = null;
+            _statusMessage = result?.message ?? 'انظر للكاميرا مباشرة';
+          });
+        }
       }
     } catch (e) {
-      debugPrint('Error processing image: $e');
+      debugPrint('❌ [Attendance] Error processing image: $e');
+      if (mounted && _statusMessage == null || _statusMessage!.isEmpty) {
+        setState(() {
+          _statusMessage = 'حدث خطأ في معالجة الصورة';
+        });
+      }
     }
   }
 
@@ -123,8 +144,15 @@ class _AttendanceCheckInScreenState extends State<AttendanceCheckInScreen> {
       }
 
       // 2. Capture Image
+      // إيقاف stream مؤقتاً قبل التقاط الصورة
+      await _cameraController!.stopImageStream();
       final image = await _cameraController!.takePicture();
       final imageFile = File(image.path);
+      
+      // إعادة تشغيل stream بعد التقاط الصورة
+      if (mounted && _cameraController != null && _cameraController!.value.isInitialized) {
+        await _cameraController!.startImageStream(_processCameraImage);
+      }
 
       // 3. Check-in
       final employeeId = await AuthService.getEmployeeId();
@@ -196,6 +224,8 @@ class _AttendanceCheckInScreenState extends State<AttendanceCheckInScreen> {
 
   @override
   void dispose() {
+    // إيقاف stream الكاميرا قبل التخلص منها
+    _cameraController?.stopImageStream();
     _cameraController?.dispose();
     _faceService.dispose();
     super.dispose();

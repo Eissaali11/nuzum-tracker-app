@@ -44,6 +44,9 @@ dependencies:
   location: ^6.0.2 
   geolocator: ^12.0.0
   
+  # للمهام الدورية في الخلفية (مثل Life360) - اختياري
+  # workmanager: ^0.5.2  # معلق مؤقتاً بسبب مشاكل التوافق - Foreground Service كافٍ
+  
   # استخدام geolocator مباشرة مع Timer (يدعم Android 15 بشكل أفضل) 
 
   intl: ^0.20.2
@@ -82,6 +85,10 @@ dependencies:
   # Security & Encryption
   crypto: ^3.0.3
   encrypt: ^5.0.1
+  
+  # Device Information for Security
+  device_info_plus: ^10.1.0
+  package_info_plus: ^8.0.0
   
   # The following adds the Cupertino Icons font to your application.
   cupertino_icons: ^1.0.8

@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../screens/main_navigation_screen.dart';
@@ -6,7 +7,7 @@ import '../utils/safe_preferences.dart';
 
 /// ============================================
 /// 🔐 صفحة تسجيل الدخول - Login Screen
-/// تصميم احترافي مع شعار أنيق
+/// تصميم احترافي مع خلفية داكنة ونمط سداسي
 /// ============================================
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -133,44 +134,84 @@ class _LoginScreenState extends State<LoginScreen>
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topRight,
-            end: Alignment.bottomLeft,
-            colors: [Color(0xFF1E3C72), Color(0xFF2A5298), Color(0xFF1E3C72)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFF0A1628), // Dark blue
+              Color(0xFF1A2744), // Medium dark blue
+              Color(0xFF0F1B2E), // Dark blue
+            ],
             stops: [0.0, 0.5, 1.0],
           ),
         ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            child: AnimatedBuilder(
-              animation: _animationController,
-              builder: (context, child) {
-                return FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: SlideTransition(
-                    position: _slideAnimation,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          SizedBox(height: size.height * 0.08),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return Stack(
+              children: [
+                // Hexagonal pattern overlay
+                CustomPaint(
+                  size: Size(constraints.maxWidth, constraints.maxHeight),
+                  painter: HexagonalPatternPainter(),
+                ),
+                SafeArea(
+                  child: SingleChildScrollView(
+                    child: AnimatedBuilder(
+                      animation: _animationController,
+                      builder: (context, child) {
+                        return FadeTransition(
+                          opacity: _fadeAnimation,
+                          child: SlideTransition(
+                            position: _slideAnimation,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  SizedBox(height: size.height * 0.05),
+                                  
+                                  // نص "نظم" في الزاوية العلوية اليمنى
+                                  _buildTopRightText(),
 
-                          // الشعار
-                          _buildLogo(),
+                                  SizedBox(height: size.height * 0.03),
 
-                          SizedBox(height: size.height * 0.06),
+                                  // الشعار
+                                  _buildLogo(),
 
-                          // بطاقة تسجيل الدخول
-                          _buildLoginCard(),
+                                  SizedBox(height: size.height * 0.06),
 
-                          SizedBox(height: size.height * 0.05),
-                        ],
-                      ),
+                                  // بطاقة تسجيل الدخول الشفافة
+                                  _buildLoginCard(),
+
+                                  SizedBox(height: size.height * 0.05),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
-                );
-              },
-            ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopRightText() {
+    return Align(
+      alignment: Alignment.topRight,
+      child: Padding(
+        padding: const EdgeInsets.only(right: 8.0),
+        child: Text(
+          'نظم',
+          style: arabicFont.copyWith(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: const Color(0xFF4FC3F7), // Light cyan
+            letterSpacing: 2,
           ),
         ),
       ),
@@ -182,19 +223,18 @@ class _LoginScreenState extends State<LoginScreen>
       width: 160,
       height: 160,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Colors.transparent,
         shape: BoxShape.circle,
+        border: Border.all(
+          color: const Color(0xFF4FC3F7).withValues(alpha: 0.5),
+          width: 2,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.2),
+            color: const Color(0xFF4FC3F7).withValues(alpha: 0.3),
             blurRadius: 30,
             spreadRadius: 5,
             offset: const Offset(0, 10),
-          ),
-          BoxShadow(
-            color: Colors.white.withValues(alpha: 0.3),
-            blurRadius: 20,
-            spreadRadius: 2,
           ),
         ],
       ),
@@ -205,16 +245,19 @@ class _LoginScreenState extends State<LoginScreen>
           fit: BoxFit.contain,
           errorBuilder: (context, error, stackTrace) {
             return Container(
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [Color(0xFF1E3C72), Color(0xFF2A5298)],
+                  colors: [
+                    const Color(0xFF4FC3F7).withValues(alpha: 0.3),
+                    const Color(0xFF29B6F6).withValues(alpha: 0.3),
+                  ],
                 ),
                 shape: BoxShape.circle,
               ),
               child: const Icon(
                 Icons.business_rounded,
                 size: 80,
-                color: Colors.white,
+                color: Color(0xFF4FC3F7),
               ),
             );
           },
@@ -227,13 +270,23 @@ class _LoginScreenState extends State<LoginScreen>
     return Container(
       padding: const EdgeInsets.all(32),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Colors.white.withValues(alpha: 0.1), // Transparent white
         borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: const Color(0xFF4FC3F7).withValues(alpha: 0.3),
+          width: 1.5,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.15),
+            color: Colors.black.withValues(alpha: 0.3),
             blurRadius: 30,
             offset: const Offset(0, 15),
+            spreadRadius: 0,
+          ),
+          BoxShadow(
+            color: const Color(0xFF4FC3F7).withValues(alpha: 0.1),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
             spreadRadius: 0,
           ),
         ],
@@ -249,14 +302,17 @@ class _LoginScreenState extends State<LoginScreen>
               style: arabicFont.copyWith(
                 fontSize: 28,
                 fontWeight: FontWeight.bold,
-                color: const Color(0xFF1E3C72),
+                color: const Color(0xFF4FC3F7), // Light cyan
               ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
             Text(
               'أدخل بياناتك للوصول إلى حسابك',
-              style: arabicFont.copyWith(fontSize: 14, color: Colors.grey[600]),
+              style: arabicFont.copyWith(
+                fontSize: 14,
+                color: Colors.white.withValues(alpha: 0.7),
+              ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 32),
@@ -316,12 +372,12 @@ class _LoginScreenState extends State<LoginScreen>
               height: 56,
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
-                  colors: [Color(0xFF1E3C72), Color(0xFF2A5298)],
+                  colors: [Color(0xFF4FC3F7), Color(0xFF29B6F6)],
                 ),
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF1E3C72).withValues(alpha: 0.4),
+                    color: const Color(0xFF4FC3F7).withValues(alpha: 0.5),
                     blurRadius: 15,
                     offset: const Offset(0, 8),
                   ),
@@ -384,26 +440,46 @@ class _LoginScreenState extends State<LoginScreen>
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: Colors.white.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey[300]!, width: 1.5),
+        border: Border.all(
+          color: const Color(0xFF4FC3F7).withValues(alpha: 0.3),
+          width: 1.5,
+        ),
       ),
       child: TextFormField(
         controller: controller,
         obscureText: obscureText,
         keyboardType: keyboardType,
         validator: validator,
-        style: arabicFont.copyWith(fontSize: 16, color: Colors.grey[800]),
+        style: arabicFont.copyWith(
+          fontSize: 16,
+          color: Colors.white,
+        ),
         decoration: InputDecoration(
           labelText: label,
           hintText: hint,
           labelStyle: arabicFont.copyWith(
-            color: Colors.grey[600],
+            color: Colors.white.withValues(alpha: 0.7),
             fontSize: 14,
           ),
-          hintStyle: arabicFont.copyWith(color: Colors.grey[400], fontSize: 14),
-          prefixIcon: Icon(icon, color: const Color(0xFF1E3C72), size: 24),
-          suffixIcon: suffixIcon,
+          hintStyle: arabicFont.copyWith(
+            color: Colors.white.withValues(alpha: 0.5),
+            fontSize: 14,
+          ),
+          prefixIcon: Icon(
+            icon,
+            color: const Color(0xFF4FC3F7),
+            size: 24,
+          ),
+          suffixIcon: suffixIcon != null
+              ? IconTheme(
+                  data: const IconThemeData(
+                    color: Color(0xFF4FC3F7),
+                  ),
+                  child: suffixIcon,
+                )
+              : null,
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(16),
             borderSide: BorderSide.none,
@@ -414,7 +490,10 @@ class _LoginScreenState extends State<LoginScreen>
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(color: Color(0xFF1E3C72), width: 2),
+            borderSide: const BorderSide(
+              color: Color(0xFF4FC3F7),
+              width: 2,
+            ),
           ),
           errorBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(16),
@@ -425,7 +504,7 @@ class _LoginScreenState extends State<LoginScreen>
             borderSide: const BorderSide(color: Colors.red, width: 2),
           ),
           filled: true,
-          fillColor: Colors.grey[50],
+          fillColor: Colors.transparent,
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 20,
             vertical: 18,
@@ -434,4 +513,49 @@ class _LoginScreenState extends State<LoginScreen>
       ),
     );
   }
+}
+
+/// Custom painter for hexagonal pattern background
+class HexagonalPatternPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFF4FC3F7).withValues(alpha: 0.05)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+
+    const hexSize = 40.0;
+    final hexHeight = hexSize * math.sqrt(3);
+    final hexWidth = hexSize * 2;
+
+    // Draw hexagonal grid
+    for (double y = -hexHeight; y < size.height + hexHeight; y += hexHeight * 0.75) {
+      for (double x = -hexWidth; x < size.width + hexWidth; x += hexWidth * 0.75) {
+        final offsetX = (y / (hexHeight * 0.75)).round() % 2 == 0
+            ? x
+            : x + hexWidth * 0.375;
+        
+        _drawHexagon(canvas, Offset(offsetX, y), hexSize, paint);
+      }
+    }
+  }
+
+  void _drawHexagon(Canvas canvas, Offset center, double size, Paint paint) {
+    final path = Path();
+    for (int i = 0; i < 6; i++) {
+      final angle = (math.pi / 3) * i;
+      final x = center.dx + size * math.cos(angle);
+      final y = center.dy + size * math.sin(angle);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    path.close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

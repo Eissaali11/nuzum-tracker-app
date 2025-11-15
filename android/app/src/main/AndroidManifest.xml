@@ -18,6 +18,8 @@
     <!-- Optional but recommended permissions for service stability -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Required for BootReceiver to start service after reboot -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:label="nuzum_tracker"
@@ -51,10 +53,34 @@
         
         <!-- 
           ==============================================================
-          SECTION 2: WORKMANAGER CONFIGURATION
+          SECTION 2: FOREGROUND SERVICE FOR LOCATION TRACKING
           ==============================================================
-          WorkManager is used for background location tracking on Android 15+
+          Service يعمل في الخلفية حتى عند إغلاق التطبيق (مثل Life360)
         -->
+        <service
+            android:name=".LocationForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+        <!-- 
+          ==============================================================
+          SECTION 3: BOOT RECEIVER - Auto-start after reboot
+          ==============================================================
+          يبدأ التتبع تلقائياً بعد إعادة تشغيل الجهاز
+        -->
+        <receiver
+            android:name=".BootReceiver"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.PACKAGE_REPLACED" />
+                <data android:scheme="package" />
+            </intent-filter>
+        </receiver>
 
     </application>
 

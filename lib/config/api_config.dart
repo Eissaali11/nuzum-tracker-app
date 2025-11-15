@@ -65,6 +65,10 @@ class ApiConfig {
   // مسار تسجيل الدخول - تم التحديث لاستخدام v1
   static const String loginPath = '/api/v1/auth/login';
   
+  // مسار تسجيل الحضور مع التحقق الكامل - v1
+  static const String checkInPath = '/api/v1/attendance/check-in';
+  static const String checkOutPath = '/api/v1/attendance/check-out';
+  
   // ============================================
   // 🆕 مسارات API الجديدة (نظام نُظم v1)
   // ============================================
