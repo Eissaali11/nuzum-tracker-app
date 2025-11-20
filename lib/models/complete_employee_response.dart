@@ -1,6 +1,7 @@
 /// ============================================
 /// 📦 نموذج الاستجابة الشاملة للموظف - Complete Employee Response Model
 /// ============================================
+import 'package:flutter/foundation.dart';
 import 'employee_model.dart';
 import 'attendance_model.dart';
 import 'car_model.dart';
@@ -27,6 +28,27 @@ class CompleteEmployeeResponse {
   });
 
   factory CompleteEmployeeResponse.fromJson(Map<String, dynamic> json) {
+    // Logging لفحص البيانات
+    if (kDebugMode) {
+      print('📋 [CompleteResponse] Parsing employee data...');
+      print('   - current_car exists: ${json.containsKey('current_car') && json['current_car'] != null}');
+      print('   - previous_cars count: ${(json['previous_cars'] as List<dynamic>?)?.length ?? 0}');
+      if (json['previous_cars'] != null) {
+        final prevCars = json['previous_cars'] as List<dynamic>;
+        print('   - Total previous_cars: ${prevCars.length}');
+        for (var i = 0; i < prevCars.length; i++) {
+          final car = prevCars[i] as Map<String, dynamic>;
+          print('   - Previous car ${i + 1}/${prevCars.length}:');
+          print('     * Plate: ${car['plate_number'] ?? 'N/A'}');
+          print('     * Model: ${car['model'] ?? 'N/A'}');
+          print('     * Status: ${car['status'] ?? 'N/A'}');
+          print('     * ID: ${car['car_id'] ?? car['vehicle_id'] ?? car['id'] ?? 'EMPTY'}');
+        }
+      } else {
+        print('   - previous_cars is NULL or missing');
+      }
+    }
+    
     return CompleteEmployeeResponse(
       employee: Employee.fromJson(json['employee'] as Map<String, dynamic>),
       currentCar: json['current_car'] != null

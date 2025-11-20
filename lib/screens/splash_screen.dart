@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:nuzum_tracker/screens/disclaimer_screen.dart';
 import 'package:nuzum_tracker/screens/login_screen.dart';
 import 'package:nuzum_tracker/screens/main_navigation_screen.dart';
+import 'package:nuzum_tracker/services/auth_service.dart';
 import 'package:nuzum_tracker/utils/safe_preferences.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -68,18 +69,25 @@ class _SplashScreenState extends State<SplashScreen>
 
     final bool disclaimerAccepted =
         await SafePreferences.getBool('disclaimerAccepted') ?? false;
+    
+    // التحقق من حالة تسجيل الدخول - يعتمد على بيانات المستخدم (jobNumber, nationalId)
+    // هذا يضمن بقاء المستخدم مسجل دخول بعد أول تسجيل دخول
+    final bool isLoggedIn = await AuthService.isLoggedIn();
     final String? jobNumber = await SafePreferences.getString('jobNumber');
     final String? nationalId = await SafePreferences.getString('nationalId');
 
     Widget nextScreen;
     if (!disclaimerAccepted) {
       nextScreen = const DisclaimerScreen();
-    } else if (jobNumber != null && nationalId != null) {
-      // المستخدم مسجل دخول بالفعل
+    } else if (isLoggedIn && jobNumber != null && nationalId != null) {
+      // المستخدم مسجل دخول - بياناته موجودة (Token يتم تجديده تلقائياً في الخلفية)
+      // لا حاجة لفحص Token - isLoggedIn() يتعامل مع ذلك
       nextScreen = const MainNavigationScreen();
+      debugPrint('✅ [Splash] User is logged in, proceeding to main screen');
     } else {
-      // المستخدم غير مسجل دخول - الانتقال لصفحة الدخول
+      // المستخدم غير مسجل دخول - لا توجد بيانات مستخدم
       nextScreen = const LoginScreen();
+      debugPrint('ℹ️ [Splash] User not logged in, proceeding to login screen');
     }
 
     if (mounted) {

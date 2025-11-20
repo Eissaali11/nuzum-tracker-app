@@ -179,6 +179,15 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
+    case WM_CLOSE:
+      // عند إغلاق النافذة، تصغيرها بدلاً من إغلاق التطبيق
+      if (!quit_on_close_) {
+        ShowWindow(hwnd, SW_MINIMIZE);
+        return 0;
+      }
+      // إذا كان quit_on_close_ مفعّل، نتابع الإغلاق العادي
+      break;
+    
     case WM_DESTROY:
       window_handle_ = nullptr;
       Destroy();

@@ -1,3 +1,5 @@
+import '../services/language_service.dart';
+
 /// ============================================
 /// 🔔 نموذج الإشعار - Notification Model
 /// ============================================
@@ -69,15 +71,28 @@ class Notification {
   String get timeAgo {
     final now = DateTime.now();
     final difference = now.difference(createdAt);
+    final isArabic = LanguageService.instance.isArabic;
 
     if (difference.inDays > 0) {
-      return 'منذ ${difference.inDays} ${difference.inDays == 1 ? 'يوم' : 'أيام'}';
+      if (isArabic) {
+        return 'منذ ${difference.inDays} ${difference.inDays == 1 ? 'يوم' : 'أيام'}';
+      } else {
+        return '${difference.inDays} ${difference.inDays == 1 ? 'day' : 'days'} ago';
+      }
     } else if (difference.inHours > 0) {
-      return 'منذ ${difference.inHours} ${difference.inHours == 1 ? 'ساعة' : 'ساعات'}';
+      if (isArabic) {
+        return 'منذ ${difference.inHours} ${difference.inHours == 1 ? 'ساعة' : 'ساعات'}';
+      } else {
+        return '${difference.inHours} ${difference.inHours == 1 ? 'hour' : 'hours'} ago';
+      }
     } else if (difference.inMinutes > 0) {
-      return 'منذ ${difference.inMinutes} ${difference.inMinutes == 1 ? 'دقيقة' : 'دقائق'}';
+      if (isArabic) {
+        return 'منذ ${difference.inMinutes} ${difference.inMinutes == 1 ? 'دقيقة' : 'دقائق'}';
+      } else {
+        return '${difference.inMinutes} ${difference.inMinutes == 1 ? 'minute' : 'minutes'} ago';
+      }
     } else {
-      return 'الآن';
+      return isArabic ? 'الآن' : 'Now';
     }
   }
 }

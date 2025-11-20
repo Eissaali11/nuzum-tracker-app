@@ -1319,36 +1319,323 @@ class RequestsApiService {
     required ProgressCallback onProgress,
   }) async {
     try {
-      final compressedFile = await _compressImage(imageFile);
-
-      final formData = FormData.fromMap({
-        'image': await MultipartFile.fromFile(
-          compressedFile.path,
-          filename: 'inspection.jpg',
-        ),
-      });
-
-      final response = await dio.post(
-        '${ApiConfig.uploadInspectionImagePath}/$requestId/upload-inspection-image',
-        data: formData,
-        onSendProgress: onProgress,
-      );
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        final data = response.data as Map<String, dynamic>;
+      // التحقق من وجود Token
+      final token = await AuthService.getValidToken();
+      if (token == null || token.isEmpty) {
+        debugPrint('❌ [RequestsAPI] No valid token available for image upload');
         return {
-          'success': true,
-          'data': {
-            'media_id': data['media_id'],
-            'drive_url': data['drive_url'],
-          },
+          'success': false,
+          'error': 'يرجى تسجيل الدخول أولاً',
         };
       }
 
-      return {'success': false, 'error': 'فشل رفع الصورة'};
-    } catch (e) {
-      debugPrint('❌ [RequestsAPI] Upload image error: $e');
-      return {'success': false, 'error': 'حدث خطأ: $e'};
+      debugPrint('📤 [RequestsAPI] Starting image upload for request ID: $requestId');
+      debugPrint('📤 [RequestsAPI] Image file path: ${imageFile.path}');
+      debugPrint('📤 [RequestsAPI] Image file exists: ${await imageFile.exists()}');
+      debugPrint('📤 [RequestsAPI] Image file size: ${await imageFile.length()} bytes');
+      debugPrint('📤 [RequestsAPI] Token present: ${token.isNotEmpty}');
+
+      // ضغط الصورة
+      debugPrint('📤 [RequestsAPI] Compressing image...');
+      final compressedFile = await _compressImage(imageFile);
+      debugPrint('📤 [RequestsAPI] Compressed file path: ${compressedFile.path}');
+      debugPrint('📤 [RequestsAPI] Compressed file size: ${await compressedFile.length()} bytes');
+
+      // التحقق من وجود الملف المضغوط
+      if (!await compressedFile.exists()) {
+        debugPrint('❌ [RequestsAPI] Compressed file does not exist');
+        return {
+          'success': false,
+          'error': 'فشل ضغط الصورة',
+        };
+      }
+
+      debugPrint('📤 [RequestsAPI] Preparing image for upload...');
+      debugPrint('📤 [RequestsAPI] Compressed file size: ${await compressedFile.length()} bytes');
+      
+      // قائمة المسارات المحتملة للرفع (على nuzum.site)
+      // المسار الأساسي الجديد: POST /api/v1/employee-requests/requests/{request_id}/upload-inspection-image
+      // المسار البديل: POST /api/v1/requests/{request_id}/upload-inspection-image
+      final possiblePaths = [
+        '/api/v1/employee-requests/requests/$requestId/upload-inspection-image', // المسار الأساسي الجديد (nuzum.site)
+        '/api/v1/requests/$requestId/upload-inspection-image', // مسار بديل 1
+        '/api/v1/requests/$requestId/upload-image', // مسار بديل 2
+        '${ApiConfig.uploadInspectionImagePath}/$requestId/upload-inspection-image', // مسار احتياطي (eissahr)
+        '/api/external/requests/$requestId/upload-inspection-image', // مسار احتياطي
+        '/api/v1/requests/$requestId/upload', // مسار احتياطي
+      ];
+
+      // استخدام nuzum.site للرفع (Endpoint الجديد)
+      final uploadBaseUrl = ApiConfig.nuzumBaseUrl;
+      
+      // محاولة كل مسار حتى ينجح أحدها
+      DioException? lastException;
+      for (int i = 0; i < possiblePaths.length; i++) {
+        // ✅ إنشاء FormData جديد في كل محاولة (مهم جداً!)
+        final multipartFile = await MultipartFile.fromFile(
+          compressedFile.path,
+          filename: 'inspection_${DateTime.now().millisecondsSinceEpoch}.jpg',
+          contentType: MediaType('image', 'jpeg'),
+        );
+
+        // ✅ إنشاء FormData جديد في كل محاولة
+        final formData = FormData.fromMap({
+          'image': multipartFile,
+        });
+
+        final uploadPath = possiblePaths[i];
+        // استخدام nuzum.site للمسارين الأولين، baseUrl للباقي
+        final baseUrl = (i < 2) ? uploadBaseUrl : ApiConfig.baseUrl;
+        final fullUrl = '$baseUrl$uploadPath';
+        
+        debugPrint('📤 [RequestsAPI] Attempt ${i + 1}/${possiblePaths.length}: $uploadPath');
+        debugPrint('📤 [RequestsAPI] Base URL: $baseUrl');
+        debugPrint('📤 [RequestsAPI] Full URL: $fullUrl');
+        debugPrint('📤 [RequestsAPI] FormData created (new instance)');
+        debugPrint('📤 [RequestsAPI] MultipartFile size: ${multipartFile.length} bytes');
+        debugPrint('📤 [RequestsAPI] MultipartFile filename: ${multipartFile.filename}');
+        
+        try {
+          final startTime = DateTime.now();
+          
+          // إنشاء Dio instance جديد للمسارين الأولين (nuzum.site)
+          // أو استخدام Dio الحالي للباقي (eissahr.replit.app)
+          final uploadDio = (i < 2) 
+              ? Dio(BaseOptions(
+                  baseUrl: baseUrl,
+                  connectTimeout: ApiConfig.timeoutDuration,
+                  receiveTimeout: ApiConfig.timeoutDuration,
+                ))
+              : dio;
+          
+          // إضافة interceptor للـ Token
+          if (i < 2) {
+            uploadDio.options.headers['Authorization'] = 'Bearer $token';
+          }
+          
+          final response = await uploadDio.post(
+            uploadPath,
+            data: formData,
+            onSendProgress: onProgress,
+            options: Options(
+              headers: {
+                'Authorization': 'Bearer $token',
+                // لا نضيف Content-Type يدوياً - Dio سيفعل ذلك تلقائياً مع boundary
+              },
+              validateStatus: (status) => true, // قبول جميع رموز الحالة للتحقق منها يدوياً
+            ),
+          );
+          
+          final duration = DateTime.now().difference(startTime);
+          debugPrint('📤 [RequestsAPI] Request completed in ${duration.inMilliseconds}ms');
+          debugPrint('📤 [RequestsAPI] Response status: ${response.statusCode}');
+          debugPrint('📤 [RequestsAPI] Response data: ${response.data}');
+
+          if (response.statusCode == 200 || response.statusCode == 201) {
+            final data = response.data as Map<String, dynamic>;
+            final responseData = data['data'] ?? data;
+            
+            debugPrint('✅ [RequestsAPI] Image uploaded successfully via path: $uploadPath');
+            debugPrint('📋 [RequestsAPI] Media ID: ${responseData['media_id'] ?? responseData['image_id'] ?? 'N/A'}');
+            debugPrint('📋 [RequestsAPI] Image URL: ${responseData['image_url'] ?? 'N/A'}');
+            debugPrint('📋 [RequestsAPI] Local Path: ${responseData['local_path'] ?? 'N/A'}');
+            debugPrint('📋 [RequestsAPI] Drive URL: ${responseData['drive_url'] ?? 'N/A (optional)'}');
+            debugPrint('📋 [RequestsAPI] Drive File ID: ${responseData['drive_file_id'] ?? 'N/A (optional)'}');
+            
+            return {
+              'success': true,
+              'data': {
+                'media_id': responseData['media_id'] ?? responseData['image_id'],
+                'image_url': responseData['image_url'], // ✅ رابط مباشر للصورة المحفوظة محلياً
+                'local_path': responseData['local_path'], // ✅ المسار المحلي
+                'drive_url': responseData['drive_url'], // ✅ Google Drive (اختياري - قد يكون null)
+                'drive_file_id': responseData['drive_file_id'], // ✅ Google Drive File ID (اختياري)
+              },
+            };
+          } else if (response.statusCode == 404) {
+            // إذا كان 404، جرب المسار التالي
+            debugPrint('⚠️ [RequestsAPI] Path not found (404), trying next path...');
+            continue;
+          } else if (response.statusCode == 500) {
+            // خطأ 500 - قد يكون مشكلة في قاعدة البيانات (مثل عدم وجود عمود local_path)
+            // لكن الصورة قد تكون محفوظة محلياً بالفعل
+            final responseData = response.data is Map<String, dynamic> ? response.data : {};
+            final errorMessage = responseData['message'] ?? 
+                                responseData['error'] ?? 
+                                'خطأ في الخادم أثناء رفع الصورة';
+            
+            debugPrint('⚠️ [RequestsAPI] Server error (500): $errorMessage');
+            
+            // التحقق من رسالة الخطأ - إذا كانت متعلقة بقاعدة البيانات
+            final errorStr = errorMessage.toString();
+            final responseStr = response.data?.toString() ?? '';
+            
+            // إذا كان الخطأ متعلقاً بعمود local_path غير موجود
+            // لكن الصورة محفوظة محلياً (نرى local_path في parameters)
+            if ((errorStr.contains('local_path') || 
+                 errorStr.contains('column') || 
+                 errorStr.contains('does not exist') ||
+                 responseStr.contains('local_path')) &&
+                (responseStr.contains('uploads/car_inspections') ||
+                 responseStr.contains('inspection_'))) {
+              
+              debugPrint('✅ [RequestsAPI] Image uploaded and saved locally on server');
+              debugPrint('⚠️ [RequestsAPI] Database error: local_path column missing');
+              debugPrint('✅ [RequestsAPI] Image is available at: static/uploads/car_inspections/');
+              
+              // استخراج local_path من response إذا كان موجوداً
+              String? extractedLocalPath;
+              if (responseStr.contains('local_path')) {
+                final match = RegExp(r"'local_path':\s*'([^']+)'").firstMatch(responseStr);
+                if (match != null) {
+                  extractedLocalPath = match.group(1);
+                  debugPrint('📋 [RequestsAPI] Extracted local_path: $extractedLocalPath');
+                }
+              }
+              
+              // نعتبر العملية ناجحة لأن الصورة محفوظة محلياً
+              // حتى لو فشل حفظها في قاعدة البيانات
+              debugPrint('✅ [RequestsAPI] Considering upload successful - image saved locally');
+              return {
+                'success': true,
+                'data': {
+                  'media_id': null, // لم يتم حفظه في قاعدة البيانات
+                  'image_url': extractedLocalPath != null 
+                      ? 'https://nuzum.site/static/$extractedLocalPath'
+                      : null,
+                  'local_path': extractedLocalPath,
+                  'drive_url': null,
+                },
+                'warning': 'تم رفع الصورة بنجاح. حدث خطأ في قاعدة البيانات (العمود local_path غير موجود). يرجى تحديث قاعدة البيانات.',
+              };
+            }
+            
+            // إذا لم تكن الصورة محفوظة، نعيد المحاولة
+            debugPrint('⚠️ [RequestsAPI] Retrying...');
+            if (i < possiblePaths.length - 1) {
+              debugPrint('🔄 [RequestsAPI] Retrying with next path...');
+              continue;
+            } else {
+              // إذا كانت آخر محاولة، نعيد المحاولة على نفس المسار بعد تأخير
+              if (i == 0) {
+                debugPrint('🔄 [RequestsAPI] Retrying same path after delay...');
+                await Future.delayed(const Duration(seconds: 2));
+                continue;
+              }
+              return {
+                'success': false,
+                'error': '$errorMessage. يرجى المحاولة مرة أخرى لاحقاً',
+              };
+            }
+          } else {
+            // إذا كان خطأ آخر، قد يكون المسار صحيح لكن هناك مشكلة أخرى
+            final errorMessage = response.data is Map<String, dynamic>
+                ? (response.data['error'] ?? response.data['message'] ?? 'فشل رفع الصورة')
+                : 'فشل رفع الصورة: ${response.statusCode}';
+            
+            debugPrint('❌ [RequestsAPI] Upload failed with status ${response.statusCode}: $errorMessage');
+            
+            // إذا لم يكن 404 أو 500، لا نعيد المحاولة مع مسارات أخرى
+            if (response.statusCode != 404 && response.statusCode != 500) {
+              return {'success': false, 'error': errorMessage};
+            }
+          }
+        } on DioException catch (e) {
+          lastException = e;
+          debugPrint('❌ [RequestsAPI] DioException for path $uploadPath:');
+          debugPrint('   Status code: ${e.response?.statusCode}');
+          debugPrint('   Error type: ${e.type}');
+          debugPrint('   Error message: ${e.message}');
+          
+          // إذا كان 404، جرب المسار التالي
+          if (e.response?.statusCode == 404 || e.type == DioExceptionType.badResponse) {
+            debugPrint('⚠️ [RequestsAPI] Path not found or bad response, trying next path...');
+            continue;
+          }
+          
+          // إذا كان خطأ اتصال، لا نعيد المحاولة
+          if (e.type == DioExceptionType.connectionTimeout ||
+              e.type == DioExceptionType.receiveTimeout ||
+              e.type == DioExceptionType.connectionError) {
+            debugPrint('❌ [RequestsAPI] Connection error, stopping attempts');
+            break;
+          }
+        } catch (e) {
+          debugPrint('❌ [RequestsAPI] Unexpected error for path $uploadPath: $e');
+          continue;
+        }
+      }
+      
+      // إذا فشلت جميع المحاولات
+      if (lastException != null) {
+        throw lastException; // سيتم معالجته في catch block الخارجي
+      }
+      
+      return {
+        'success': false,
+        'error': 'فشل رفع الصورة: جميع المسارات المحتملة فشلت',
+      };
+      
+    } on DioException catch (e) {
+      debugPrint('❌ [RequestsAPI] DioException during image upload:');
+      debugPrint('   Status code: ${e.response?.statusCode}');
+      debugPrint('   Response data: ${e.response?.data}');
+      debugPrint('   Response headers: ${e.response?.headers}');
+      debugPrint('   Error message: ${e.message}');
+      debugPrint('   Error type: ${e.type}');
+      debugPrint('   Request path: ${e.requestOptions.path}');
+      debugPrint('   Request baseUrl: ${e.requestOptions.baseUrl}');
+      debugPrint('   Request method: ${e.requestOptions.method}');
+      debugPrint('   Request headers: ${e.requestOptions.headers}');
+      
+      String errorMessage = 'حدث خطأ أثناء رفع الصورة';
+      
+      if (e.response != null) {
+        final statusCode = e.response!.statusCode;
+        final responseData = e.response!.data;
+        
+        if (responseData is Map<String, dynamic>) {
+          errorMessage = responseData['error'] ?? 
+                        responseData['message'] ?? 
+                        'فشل رفع الصورة: $statusCode';
+        } else if (statusCode == 401) {
+          errorMessage = 'غير مصرح لك برفع الصورة. يرجى تسجيل الدخول مرة أخرى';
+        } else if (statusCode == 404) {
+          errorMessage = 'المسار غير موجود. يرجى التحقق من رقم الطلب ($requestId)';
+        } else if (statusCode == 413) {
+          errorMessage = 'حجم الصورة كبير جداً. يرجى تقليل حجم الصورة';
+        } else if (statusCode == 422) {
+          errorMessage = 'بيانات الصورة غير صالحة. يرجى التحقق من الملف';
+        } else if (statusCode == 500) {
+          errorMessage = 'خطأ في الخادم. يرجى المحاولة لاحقاً';
+        } else {
+          errorMessage = 'فشل رفع الصورة: $statusCode';
+        }
+      } else if (e.type == DioExceptionType.connectionTimeout ||
+                 e.type == DioExceptionType.receiveTimeout) {
+        errorMessage = 'انتهت مهلة الاتصال. يرجى التحقق من اتصال الإنترنت';
+      } else if (e.type == DioExceptionType.connectionError) {
+        errorMessage = 'فشل الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت';
+      } else if (e.type == DioExceptionType.badResponse) {
+        errorMessage = 'استجابة غير صالحة من الخادم';
+      } else if (e.type == DioExceptionType.cancel) {
+        errorMessage = 'تم إلغاء الطلب';
+      } else if (e.type == DioExceptionType.sendTimeout) {
+        errorMessage = 'انتهت مهلة إرسال البيانات';
+      } else {
+        errorMessage = 'خطأ في الاتصال: ${e.type} - ${e.message}';
+      }
+      
+      debugPrint('❌ [RequestsAPI] Final error message: $errorMessage');
+      return {'success': false, 'error': errorMessage};
+      
+    } catch (e, stackTrace) {
+      debugPrint('❌ [RequestsAPI] Unexpected error during image upload: $e');
+      debugPrint('❌ [RequestsAPI] Stack trace: $stackTrace');
+      return {
+        'success': false,
+        'error': 'حدث خطأ غير متوقع: ${e.toString()}',
+      };
     }
   }
 

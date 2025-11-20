@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/request_model.dart';
 import '../../services/requests_api_service.dart';
+import '../../utils/app_localizations.dart';
 import 'request_details_screen.dart';
 
 /// ============================================
@@ -15,6 +16,7 @@ class MyRequestsListScreen extends StatefulWidget {
 }
 
 class _MyRequestsListScreenState extends State<MyRequestsListScreen> {
+  final _localizations = AppLocalizations();
   List<Request> _allRequests = [];
   List<Request> _filteredRequests = [];
   bool _isLoading = true;
@@ -325,7 +327,7 @@ class _MyRequestsListScreenState extends State<MyRequestsListScreen> {
                     ElevatedButton.icon(
                       onPressed: _clearFilters,
                       icon: const Icon(Icons.clear_all_rounded, size: 18),
-                      label: const Text('مسح الفلاتر'),
+                      label: Text(_localizations.clearFilters),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.grey[200],
                         foregroundColor: Colors.grey[800],
@@ -390,9 +392,9 @@ class _MyRequestsListScreenState extends State<MyRequestsListScreen> {
         isExpanded: true,
         underline: const SizedBox(),
         icon: const Icon(Icons.arrow_drop_down_rounded),
-        items: const [
-          DropdownMenuItem(value: 'all', child: Text('الكل')),
-          DropdownMenuItem(value: 'advance', child: Text('طلب سلفة')),
+        items: [
+          DropdownMenuItem(value: 'all', child: Text(_localizations.all)),
+          DropdownMenuItem(value: 'advance', child: Text(_localizations.advanceRequest)),
           DropdownMenuItem(value: 'invoice', child: Text('رفع فاتورة')),
           DropdownMenuItem(value: 'car_wash', child: Text('طلب غسيل سيارة')),
           DropdownMenuItem(

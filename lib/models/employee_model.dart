@@ -3,6 +3,7 @@
 /// ============================================
 class Employee {
   final String jobNumber;
+  final String? employeeId; // employee_id من API الجديد
   final String name;
   final String? nameEn;
   final String? nationalId;
@@ -26,6 +27,7 @@ class Employee {
 
   Employee({
     required this.jobNumber,
+    this.employeeId,
     required this.name,
     this.nameEn,
     this.nationalId,
@@ -50,7 +52,8 @@ class Employee {
 
   factory Employee.fromJson(Map<String, dynamic> json) {
     return Employee(
-      jobNumber: json['job_number'] ?? '',
+      jobNumber: json['job_number'] ?? json['employee_id']?.toString() ?? '',
+      employeeId: json['employee_id']?.toString(),
       name: json['name'] ?? '',
       nameEn: json['name_en'],
       nationalId: json['national_id'],

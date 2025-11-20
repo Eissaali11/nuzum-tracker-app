@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/request_model.dart';
 import '../../services/requests_api_service.dart';
+import '../../utils/app_localizations.dart';
 import 'create_advance_request_screen.dart';
 import 'create_car_inspection_request_screen.dart';
 import 'create_car_wash_request_screen.dart';
@@ -24,6 +25,7 @@ class _RequestsHomeScreenState extends State<RequestsHomeScreen> {
   List<Request> _recentRequests = [];
   bool _isLoading = true;
   String? _error;
+  final _localizations = AppLocalizations();
 
   @override
   void initState() {
@@ -57,7 +59,7 @@ class _RequestsHomeScreenState extends State<RequestsHomeScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = 'حدث خطأ: $e';
+        _error = '${_localizations.errorOccurred}: $e';
         _isLoading = false;
       });
     }
@@ -76,9 +78,9 @@ class _RequestsHomeScreenState extends State<RequestsHomeScreen> {
                 floating: false,
                 pinned: true,
                 flexibleSpace: FlexibleSpaceBar(
-                  title: const Text(
-                    'الطلبات',
-                    style: TextStyle(
+                  title: Text(
+                    _localizations.requests,
+                    style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
                       fontSize: 20,
@@ -140,10 +142,10 @@ class _RequestsHomeScreenState extends State<RequestsHomeScreen> {
                           height: 50,
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
-                            children: const [
-                              Icon(Icons.dashboard_rounded, size: 22),
-                              SizedBox(width: 8),
-                              Text('الرئيسية'),
+                            children: [
+                              const Icon(Icons.dashboard_rounded, size: 22),
+                              const SizedBox(width: 8),
+                              Text(_localizations.home),
                             ],
                           ),
                         ),
@@ -151,10 +153,10 @@ class _RequestsHomeScreenState extends State<RequestsHomeScreen> {
                           height: 50,
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
-                            children: const [
-                              Icon(Icons.list_rounded, size: 22),
-                              SizedBox(width: 8),
-                              Text('طلباتي'),
+                            children: [
+                              const Icon(Icons.list_rounded, size: 22),
+                              const SizedBox(width: 8),
+                              Text(_localizations.myRequests),
                             ],
                           ),
                         ),
@@ -1156,12 +1158,12 @@ class _RequestsHomeScreenState extends State<RequestsHomeScreen> {
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
-            child: const Row(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.delete_rounded, size: 18),
-                SizedBox(width: 8),
-                Text('حذف'),
+                const Icon(Icons.delete_rounded, size: 18),
+                const SizedBox(width: 8),
+                Text(_localizations.delete),
               ],
             ),
           ),
@@ -1194,11 +1196,11 @@ class _RequestsHomeScreenState extends State<RequestsHomeScreen> {
         // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Row(
+            content: Row(
               children: [
-                Icon(Icons.check_circle_rounded, color: Colors.white),
-                SizedBox(width: 12),
-                Text('تم حذف الطلب بنجاح'),
+                const Icon(Icons.check_circle_rounded, color: Colors.white),
+                const SizedBox(width: 12),
+                Text(_localizations.requestDeleted),
               ],
             ),
             backgroundColor: Colors.green,

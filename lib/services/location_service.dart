@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'auth_service.dart';
+import 'api_logging_service.dart';
 
 /// ============================================
 /// 🔧 إعدادات الربط - API Configuration
@@ -228,6 +229,7 @@ class LocationApiService {
     bool useBackup = false,
     String? apiKey,
   }) async {
+    String? url; // تعريف url في scope أعلى
     try {
       final locationData = LocationData(
         jobNumber: jobNumber,
@@ -237,7 +239,7 @@ class LocationApiService {
         recordedAt: DateTime.now(),
       );
 
-      final url = useBackup ? ApiConfig.getBackupUrl() : ApiConfig.getPrimaryUrl();
+      url = useBackup ? ApiConfig.getBackupUrl() : ApiConfig.getPrimaryUrl();
       debugPrint('📤 [SEND] Sending location to: $url');
       debugPrint('📍 [SEND] Primary URL: ${ApiConfig.getPrimaryUrl()}');
       debugPrint('📍 [SEND] Backup URL: ${ApiConfig.getBackupUrl()}');
@@ -261,11 +263,23 @@ class LocationApiService {
         debugPrint('⚠️ [SEND] Could not get token: $e, using api_key only');
       }
 
+      final requestBody = locationData.toJson(apiKey: apiKey);
+      final startTime = DateTime.now();
+      
+      // تسجيل الطلب
+      await ApiLoggingService.logApiRequest(
+        method: 'POST',
+        url: url,
+        headers: headers,
+        body: requestBody,
+        serviceName: 'location',
+      );
+
       final response = await http
           .post(
             Uri.parse(url),
             headers: headers,
-            body: jsonEncode(locationData.toJson(apiKey: apiKey)),
+            body: jsonEncode(requestBody),
           )
           .timeout(
             _timeoutDuration,
@@ -274,6 +288,36 @@ class LocationApiService {
               throw TimeoutException('Request timeout', _timeoutDuration);
             },
           );
+      
+      final duration = DateTime.now().difference(startTime);
+      
+      // تسجيل الاستجابة
+      try {
+        final responseData = response.body.isNotEmpty 
+            ? jsonDecode(response.body) 
+            : null;
+        
+        await ApiLoggingService.logApiResponse(
+          method: 'POST',
+          url: url,
+          statusCode: response.statusCode,
+          headers: response.headers,
+          responseData: responseData,
+          duration: duration,
+          serviceName: 'location',
+        );
+      } catch (e) {
+        // إذا فشل parsing، نرسل النص كما هو
+        await ApiLoggingService.logApiResponse(
+          method: 'POST',
+          url: url,
+          statusCode: response.statusCode,
+          headers: response.headers,
+          responseData: response.body,
+          duration: duration,
+          serviceName: 'location',
+        );
+      }
 
       // التعامل مع 401 (Unauthorized) - قد يكون token منتهي
       if (response.statusCode == 401) {
@@ -326,11 +370,32 @@ class LocationApiService {
       } else {
         final error = 'فشل الإرسال: ${response.statusCode} - ${response.body}';
         debugPrint('❌ [SEND] $error');
+        
+        // تسجيل الخطأ
+        await ApiLoggingService.logApiError(
+          method: 'POST',
+          url: url,
+          error: error,
+          statusCode: response.statusCode,
+          responseData: response.body,
+          serviceName: 'location',
+        );
+        
         return LocationResponse.error(error);
       }
     } catch (e) {
       final error = 'خطأ في الإرسال: $e';
       debugPrint('❌ [SEND] $error');
+      
+      // تسجيل الخطأ
+      final errorUrl = url ?? (useBackup ? ApiConfig.getBackupUrl() : ApiConfig.getPrimaryUrl());
+      await ApiLoggingService.logApiError(
+        method: 'POST',
+        url: errorUrl,
+        error: error,
+        serviceName: 'location',
+      );
+      
       return LocationResponse.error(error);
     }
   }
@@ -616,8 +681,9 @@ class LocationApiService {
     String? apiKey,
     bool useBackup = false,
   }) async {
+    String? url; // تعريف url في scope أعلى
     try {
-      final url = useBackup ? ApiConfig.getStatusBackupUrl() : ApiConfig.getStatusUrl();
+      url = useBackup ? ApiConfig.getStatusBackupUrl() : ApiConfig.getStatusUrl();
       debugPrint('🛑 [STOP] Sending stop status to: $url');
 
       final body = {
@@ -626,6 +692,17 @@ class LocationApiService {
         'status': 'stopped',
         'stopped_at': DateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'").format(DateTime.now().toUtc()),
       };
+
+      final startTime = DateTime.now();
+      
+      // تسجيل الطلب
+      await ApiLoggingService.logApiRequest(
+        method: 'POST',
+        url: url,
+        headers: {'Content-Type': 'application/json; charset=UTF-8'},
+        body: body,
+        serviceName: 'location',
+      );
 
       final response = await http
           .post(
@@ -640,16 +717,50 @@ class LocationApiService {
               throw TimeoutException('Request timeout', _timeoutDuration);
             },
           );
+      
+      final duration = DateTime.now().difference(startTime);
+      
+      // تسجيل الاستجابة
+      await ApiLoggingService.logApiResponse(
+        method: 'POST',
+        url: url,
+        statusCode: response.statusCode,
+        headers: response.headers,
+        responseData: response.body.isNotEmpty ? jsonDecode(response.body) : null,
+        duration: duration,
+        serviceName: 'location',
+      );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         debugPrint('✅ [STOP] Stop status sent successfully!');
         return true;
       } else {
         debugPrint('❌ [STOP] Failed to send stop status: ${response.statusCode} - ${response.body}');
+        
+        // تسجيل الخطأ
+        await ApiLoggingService.logApiError(
+          method: 'POST',
+          url: url,
+          error: 'Failed to send stop status: ${response.statusCode}',
+          statusCode: response.statusCode,
+          responseData: response.body,
+          serviceName: 'location',
+        );
+        
         return false;
       }
     } catch (e) {
       debugPrint('❌ [STOP] Error sending stop status: $e');
+      
+      // تسجيل الخطأ
+      final errorUrl = url ?? (useBackup ? ApiConfig.getStatusBackupUrl() : ApiConfig.getStatusUrl());
+      await ApiLoggingService.logApiError(
+        method: 'POST',
+        url: errorUrl,
+        error: e.toString(),
+        serviceName: 'location',
+      );
+      
       return false;
     }
   }

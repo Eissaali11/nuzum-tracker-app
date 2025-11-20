@@ -6,8 +6,11 @@ import '../models/car_model.dart';
 import '../models/employee_model.dart';
 import '../models/operation_model.dart';
 import '../models/salary_model.dart';
+import '../services/auth_service.dart';
 import '../services/background_service.dart';
 import '../services/employee_api_service.dart';
+import '../services/language_service.dart';
+import '../utils/app_localizations.dart';
 import '../utils/safe_preferences.dart';
 import '../widgets/attendance_item.dart';
 import '../widgets/beautiful_card.dart';
@@ -55,13 +58,13 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
     final shouldLogout = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('تسجيل الخروج'),
-        content: const Text('هل أنت متأكد من رغبتك في تسجيل الخروج؟'),
+        title: Text(AppLocalizations().logout),
+        content: Text(AppLocalizations().logoutConfirm),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('إلغاء'),
+            child: Text(AppLocalizations().cancel),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
@@ -69,7 +72,7 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
             ),
-            child: const Text('تسجيل الخروج'),
+            child: Text(AppLocalizations().logout),
           ),
         ],
       ),
@@ -81,10 +84,10 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
       // إيقاف تتبع الموقع
       await stopLocationTracking();
 
-      // حذف البيانات المحفوظة
-      await SafePreferences.setString('jobNumber', '');
-      await SafePreferences.setString('nationalId', '');
-      await SafePreferences.setString('apiKey', '');
+      // تسجيل خروج صريح - مسح جميع البيانات بما فيها بيانات التتبع
+      await AuthService.logout(clearTrackingData: true);
+      
+      // حذف بيانات إضافية
       await SafePreferences.setBool('disclaimerAccepted', false);
 
       // التنقل إلى صفحة تسجيل الدخول
@@ -99,7 +102,7 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('حدث خطأ أثناء تسجيل الخروج: $e'),
+            content: Text('${AppLocalizations().logoutError}: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -119,7 +122,7 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
 
       if (jobNumber == null || apiKey == null) {
         setState(() {
-          _error = 'الرجاء إدخال الرقم الوظيفي والمفتاح';
+          _error = AppLocalizations().pleaseEnterJobNumber;
           _isLoading = false;
         });
         return;
@@ -144,11 +147,26 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
       setState(() {
         _employee = data.employee;
         _attendanceList = data.attendance;
-        // دمج السيارة الحالية مع السيارات السابقة
-        _carsList = [
-          if (data.currentCar != null) data.currentCar!,
-          ...data.previousCars,
-        ];
+        // دمج جميع السيارات: الحالية + السابقة
+        // نضمن عدم تكرار السيارة الحالية إذا كانت موجودة في previousCars
+        _carsList = [];
+        final addedCarIds = <String>{};
+        
+        // إضافة السيارة الحالية أولاً إذا كانت موجودة
+        if (data.currentCar != null) {
+          _carsList.add(data.currentCar!);
+          addedCarIds.add(data.currentCar!.carId);
+        }
+        
+        // إضافة جميع السيارات السابقة (بما في ذلك السيارات النشطة)
+        for (final previousCar in data.previousCars) {
+          // التحقق من عدم التكرار بناءً على car_id
+          if (!addedCarIds.contains(previousCar.carId)) {
+            _carsList.add(previousCar);
+            addedCarIds.add(previousCar.carId);
+          }
+        }
+        
         _salariesList = data.salaries;
         _operationsList = data.operations;
         _isLoading = false;
@@ -268,7 +286,7 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
                   ElevatedButton.icon(
                     onPressed: _loadData,
                     icon: const Icon(Icons.refresh),
-                    label: const Text('إعادة المحاولة'),
+                    label: Text(AppLocalizations().retry),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: is503Error ? Colors.orange : Colors.red,
                       foregroundColor: Colors.white,
@@ -293,14 +311,14 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
     if (_employee == null) {
       return Scaffold(
         backgroundColor: const Color(0xFFF5F5F5),
-        body: const Center(child: Text('لا توجد بيانات')),
+        body: Center(child: Text(AppLocalizations().noData)),
       );
     }
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(
-        title: const Text('صفحة الموظف'),
+        title: Text(AppLocalizations().employeePage),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
@@ -337,13 +355,13 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
               }
             },
             itemBuilder: (context) => [
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: 'logout',
                 child: Row(
                   children: [
-                    Icon(Icons.logout, color: Colors.red),
-                    SizedBox(width: 8),
-                    Text('تسجيل الخروج'),
+                    const Icon(Icons.logout, color: Colors.red),
+                    const SizedBox(width: 8),
+                    Text(AppLocalizations().logout),
                   ],
                 ),
               ),
@@ -385,12 +403,12 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
                     ),
                   );
                 },
-                child: const Text('عرض الكل'),
+                child: Text(AppLocalizations().viewAll),
               ),
               child: _attendanceList.isEmpty
-                  ? const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 20.0),
-                      child: Center(child: Text('لا توجد بيانات حضور')),
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 20.0),
+                      child: Center(child: Text(AppLocalizations().noAttendanceData)),
                     )
                   : Column(
                       mainAxisSize: MainAxisSize.min,
@@ -425,12 +443,12 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
                     ),
                   );
                 },
-                child: const Text('عرض الكل'),
+                child: Text(AppLocalizations().viewAll),
               ),
               child: _operationsList.isEmpty
-                  ? const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 20.0),
-                      child: Center(child: Text('لا توجد عمليات')),
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 20.0),
+                      child: Center(child: Text(AppLocalizations().noOperations)),
                     )
                   : Column(
                       mainAxisSize: MainAxisSize.min,
@@ -999,7 +1017,7 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
   /// 💰 بطاقة راتب عصرية
   /// ============================================
   Widget _buildModernSalaryCard(Salary salary) {
-    final dateFormat = DateFormat('yyyy-MM-dd', 'ar');
+    final dateFormat = DateFormat('yyyy-MM-dd', LanguageService.instance.isArabic ? 'ar' : 'en');
     Color statusColor;
     IconData statusIcon;
     String statusText;
@@ -1084,7 +1102,7 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
                           child: Text(
-                            'تاريخ الدفع: ${dateFormat.format(salary.paidDate!)}',
+                            '${AppLocalizations().paymentDate}: ${dateFormat.format(salary.paidDate!)}',
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.grey[600],

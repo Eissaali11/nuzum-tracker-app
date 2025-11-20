@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 
 import '../config/api_config.dart';
 import '../utils/safe_preferences.dart';
+import 'api_logging_service.dart';
 
 /// ============================================
 /// 🔐 خدمة المصادقة - Authentication Service
@@ -34,9 +35,59 @@ class AuthService {
           if (token != null) {
             options.headers['Authorization'] = 'Bearer $token';
           }
+          
+          // تسجيل الطلب
+          final startTime = DateTime.now();
+          options.extra['start_time'] = startTime;
+          
+          // استخراج service name من URL
+          final serviceName = _extractServiceName(options.path);
+          
+          ApiLoggingService.logApiRequest(
+            method: options.method,
+            url: '${options.baseUrl}${options.path}',
+            headers: options.headers,
+            body: options.data,
+            queryParameters: options.queryParameters,
+            serviceName: serviceName,
+          );
+          
           return handler.next(options);
         },
+        onResponse: (response, handler) async {
+          // تسجيل الاستجابة
+          final startTime = response.requestOptions.extra['start_time'] as DateTime?;
+          final duration = startTime != null 
+              ? DateTime.now().difference(startTime)
+              : null;
+          
+          final serviceName = _extractServiceName(response.requestOptions.path);
+          
+          ApiLoggingService.logApiResponse(
+            method: response.requestOptions.method,
+            url: '${response.requestOptions.baseUrl}${response.requestOptions.path}',
+            statusCode: response.statusCode ?? 0,
+            headers: response.headers.map,
+            responseData: response.data,
+            duration: duration,
+            serviceName: serviceName,
+          );
+          
+          return handler.next(response);
+        },
         onError: (error, handler) async {
+          // تسجيل الخطأ
+          final serviceName = _extractServiceName(error.requestOptions.path);
+          
+          ApiLoggingService.logApiError(
+            method: error.requestOptions.method,
+            url: '${error.requestOptions.baseUrl}${error.requestOptions.path}',
+            error: error.message ?? error.toString(),
+            statusCode: error.response?.statusCode,
+            responseData: error.response?.data,
+            serviceName: serviceName,
+          );
+          
           // إذا كان الخطأ 401 (Unauthorized)، جرب refresh token
           if (error.response?.statusCode == 401) {
             final refreshed = await refreshToken();
@@ -48,8 +99,14 @@ class AuthService {
               final response = await _dio!.fetch(opts);
               return handler.resolve(response);
             } else {
-              // فشل refresh، تسجيل خروج
-              await logout();
+              // فشل refresh - فقط مسح بيانات المصادقة، لا بيانات التتبع
+              // هذا يمنع توقف خدمة التتبع عند فشل تجديد Token
+              debugPrint('⚠️ [Auth] Token refresh failed, clearing auth data only (keeping tracking data)');
+              await SafePreferences.setString(_tokenKey, '');
+              await SafePreferences.setString(_employeeIdKey, '');
+              await SafePreferences.setString(_refreshTokenKey, '');
+              await SafePreferences.setString(_tokenExpiryKey, '');
+              // لا نمسح jobNumber و apiKey - خدمة التتبع تحتاجها
             }
           }
           return handler.next(error);
@@ -58,6 +115,19 @@ class AuthService {
     );
 
     return _dio!;
+  }
+
+  /// دالة مساعدة لاستخراج اسم الخدمة من المسار
+  static String _extractServiceName(String path) {
+    if (path.contains('/auth/')) return 'auth';
+    if (path.contains('/requests/')) return 'requests';
+    if (path.contains('/employee/')) return 'employee';
+    if (path.contains('/vehicles/')) return 'vehicles';
+    if (path.contains('/attendance/')) return 'attendance';
+    if (path.contains('/notifications/')) return 'notifications';
+    if (path.contains('/logs/')) return 'logging';
+    if (path.contains('/external/')) return 'external';
+    return 'unknown';
   }
 
   /// تسجيل الدخول
@@ -106,6 +176,8 @@ class AuthService {
           // حفظ Token
           await saveToken(token);
           await SafePreferences.setString(_employeeIdKey, employeeId);
+          // حفظ nationalId للتحقق من حالة تسجيل الدخول
+          await SafePreferences.setString('nationalId', nationalId);
           
           // حفظ refresh token إذا كان موجوداً
           if (refreshToken != null && refreshToken.isNotEmpty) {
@@ -120,8 +192,8 @@ class AuthService {
             await SafePreferences.setString('employee_department', employee['department'] ?? '');
           }
 
-          // تعيين انتهاء الصلاحية (افتراضي: ساعة واحدة)
-          final expiryDate = DateTime.now().add(const Duration(hours: 1));
+          // تعيين انتهاء الصلاحية (365 يوم - سنة كاملة - تسجيل دخول مستمر)
+          final expiryDate = DateTime.now().add(const Duration(days: 365));
           await SafePreferences.setString(
             _tokenExpiryKey,
             expiryDate.toIso8601String(),
@@ -229,8 +301,8 @@ class AuthService {
                 await SafePreferences.setString('employee_department', employee['department'] ?? '');
               }
 
-              // تعيين انتهاء الصلاحية
-              final expiryDate = DateTime.now().add(const Duration(hours: 1));
+              // تعيين انتهاء الصلاحية (365 يوم - سنة كاملة - تسجيل دخول مستمر)
+              final expiryDate = DateTime.now().add(const Duration(days: 365));
               await SafePreferences.setString(
                 _tokenExpiryKey,
                 expiryDate.toIso8601String(),
@@ -381,8 +453,8 @@ class AuthService {
             final token = data['token'] ?? data['data']?['token'] as String?;
             if (token != null) {
               await saveToken(token);
-              // تحديث تاريخ انتهاء الصلاحية
-              final expiryDate = DateTime.now().add(const Duration(hours: 1));
+              // تحديث تاريخ انتهاء الصلاحية (365 يوم - سنة كاملة - تسجيل دخول مستمر)
+              final expiryDate = DateTime.now().add(const Duration(days: 365));
               await SafePreferences.setString(
                 _tokenExpiryKey,
                 expiryDate.toIso8601String(),
@@ -421,8 +493,8 @@ class AuthService {
             final token = data['token'] ?? data['data']?['token'] as String?;
             if (token != null) {
               await saveToken(token);
-              // تحديث تاريخ انتهاء الصلاحية
-              final expiryDate = DateTime.now().add(const Duration(hours: 1));
+              // تحديث تاريخ انتهاء الصلاحية (365 يوم - سنة كاملة - تسجيل دخول مستمر)
+              final expiryDate = DateTime.now().add(const Duration(days: 365));
               await SafePreferences.setString(
                 _tokenExpiryKey,
                 expiryDate.toIso8601String(),
@@ -444,25 +516,64 @@ class AuthService {
   }
 
   /// تسجيل الخروج
-  static Future<void> logout() async {
+  /// [clearTrackingData]: إذا كان true، يتم مسح بيانات التتبع أيضاً (jobNumber, apiKey)
+  /// عند false، يتم الاحتفاظ ببيانات التتبع حتى عند تسجيل الخروج من المصادقة
+  /// هذا يسمح لخدمة التتبع بالاستمرار في العمل حتى لو تم تسجيل الخروج من الواجهة
+  static Future<void> logout({bool clearTrackingData = false}) async {
     await SafePreferences.setString(_tokenKey, '');
     await SafePreferences.setString(_employeeIdKey, '');
     await SafePreferences.setString(_refreshTokenKey, '');
     await SafePreferences.setString(_tokenExpiryKey, '');
+    // مسح بيانات تسجيل الدخول المحفوظة
+    await SafePreferences.setString('nationalId', '');
+    
+    // فقط عند تسجيل الخروج الصريح من المستخدم، نمسح بيانات التتبع
+    // هذا يمنع توقف التتبع عند فشل تجديد Token تلقائياً
+    if (clearTrackingData) {
+      await SafePreferences.setString('jobNumber', '');
+      await SafePreferences.setString('apiKey', '');
+      debugPrint('🛑 [Auth] Tracking data cleared (explicit logout)');
+    } else {
+      debugPrint('ℹ️ [Auth] Auth data cleared, but tracking data preserved');
+    }
   }
 
   /// التحقق من حالة تسجيل الدخول
+  /// يعتمد على وجود بيانات المستخدم (jobNumber, nationalId) حتى لو انتهى Token
+  /// هذا يضمن بقاء المستخدم مسجل دخول بعد أول تسجيل دخول
   static Future<bool> isLoggedIn() async {
-    final token = await getToken();
-    if (token == null || token.isEmpty) return false;
-
-    final isExpired = await isTokenExpired();
-    if (isExpired) {
-      final refreshed = await refreshToken();
-      return refreshed;
+    // التحقق من وجود بيانات المستخدم الأساسية
+    final jobNumber = await SafePreferences.getString('jobNumber');
+    final nationalId = await SafePreferences.getString('nationalId');
+    
+    // إذا كانت بيانات المستخدم موجودة، يعتبر مسجل دخول حتى لو انتهى Token
+    if (jobNumber != null && 
+        jobNumber.isNotEmpty && 
+        nationalId != null && 
+        nationalId.isNotEmpty) {
+      
+      // محاولة تجديد Token إذا كان منتهياً (في الخلفية)
+      final token = await getToken();
+      if (token == null || token.isEmpty) {
+        // لا يوجد Token - محاولة تجديده
+        debugPrint('🔄 [Auth] No token found, attempting refresh...');
+        await refreshToken();
+        return true; // نعتبره مسجل دخول حتى لو فشل التجديد
+      }
+      
+      final isExpired = await isTokenExpired();
+      if (isExpired) {
+        // Token منتهي - محاولة تجديده في الخلفية
+        debugPrint('🔄 [Auth] Token expired, attempting refresh...');
+        await refreshToken();
+        return true; // نعتبره مسجل دخول حتى لو فشل التجديد
+      }
+      
+      return true; // Token صالح وبيانات موجودة
     }
-
-    return true;
+    
+    // لا توجد بيانات مستخدم - غير مسجل دخول
+    return false;
   }
 
   /// التحقق من أن Token سينتهي قريباً (خلال 5 دقائق)

@@ -2,11 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:nuzum_tracker/services/background_service.dart';
 import 'package:nuzum_tracker/services/location_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/language_service.dart';
+import '../utils/app_localizations.dart';
 import '../widgets/beautiful_card.dart';
 import 'employee_profile_screen.dart';
 import 'main_navigation_screen.dart';
@@ -19,8 +22,8 @@ class TrackingScreen extends StatefulWidget {
 }
 
 class _TrackingScreenState extends State<TrackingScreen> {
-  String _deviceStatus = 'جاري التحميل...';
-  String _lastUpdate = 'لم يتم الإرسال بعد';
+  String _deviceStatus = AppLocalizations().loadingText;
+  String _lastUpdate = AppLocalizations().notSentYet;
   String _jobNumber = '';
   bool _isRefreshing = false;
   double? _currentSpeed;
@@ -46,8 +49,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
           await startLocationTracking();
           if (mounted) {
             setState(() {
-              _deviceStatus = 'التتبع نشط';
-              _lastUpdate = 'جاري جمع البيانات...';
+              _deviceStatus = AppLocalizations().trackingActive;
+              _lastUpdate = AppLocalizations().collectingData;
             });
           }
           debugPrint('✅ [Tracking] Location tracking started successfully');
@@ -55,8 +58,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
           debugPrint('❌ [Tracking] Error starting tracking: $startError');
           if (mounted) {
             setState(() {
-              _deviceStatus = 'خطأ في بدء التتبع';
-              _lastUpdate = 'فشل بدء خدمة التتبع';
+              _deviceStatus = AppLocalizations().trackingError;
+              _lastUpdate = AppLocalizations().serviceFailed;
             });
           }
         }
@@ -66,8 +69,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
         );
         if (mounted) {
           setState(() {
-            _deviceStatus = 'غير مُعدّ';
-            _lastUpdate = 'يرجى إعداد التطبيق أولاً';
+            _deviceStatus = AppLocalizations().notConfigured;
+            _lastUpdate = AppLocalizations().pleaseSetup;
           });
         }
       }
@@ -76,8 +79,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
       debugPrint('❌ [Tracking] Stack trace: $stackTrace');
       if (mounted) {
         setState(() {
-          _deviceStatus = 'خطأ في الخدمة';
-          _lastUpdate = 'حدث خطأ: ${e.toString()}';
+          _deviceStatus = AppLocalizations().serviceError;
+          _lastUpdate = '${AppLocalizations().errorOccurred}: ${e.toString()}';
         });
       }
     }
@@ -177,7 +180,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
               _currentSpeed = speed;
             }
             _lastUpdate =
-                'آخر تحديث: ${DateFormat('hh:mm a', 'ar').format(DateTime.now())}';
+                '${AppLocalizations().lastUpdate}: ${DateFormat('hh:mm a', LanguageService.instance.isArabic ? 'ar' : 'en').format(DateTime.now())}';
           });
         }
       });
@@ -229,11 +232,14 @@ class _TrackingScreenState extends State<TrackingScreen> {
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.stop_circle, color: Colors.red),
-            SizedBox(width: 10),
-            Text('إيقاف التتبع', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Icon(Icons.stop_circle, color: Colors.red),
+            const SizedBox(width: 10),
+            Text(
+              AppLocalizations().stopTracking,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
           ],
         ),
         content: const Text(
@@ -243,7 +249,10 @@ class _TrackingScreenState extends State<TrackingScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('إلغاء', style: TextStyle(fontSize: 16)),
+            child: Text(
+              AppLocalizations().cancel,
+              style: const TextStyle(fontSize: 16),
+            ),
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(context).pop(true),
@@ -254,7 +263,10 @@ class _TrackingScreenState extends State<TrackingScreen> {
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
-            child: const Text('تأكيد', style: TextStyle(fontSize: 16)),
+            child: Text(
+              AppLocalizations().confirm,
+              style: const TextStyle(fontSize: 16),
+            ),
           ),
         ],
       ),
@@ -333,38 +345,181 @@ class _TrackingScreenState extends State<TrackingScreen> {
     );
   }
 
+  /// بناء رأس الصفحة بتصميم أنيق ومميز
   Widget _buildCustomAppBar() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withValues(alpha: 0.15),
+            Colors.white.withValues(alpha: 0.05),
+            Colors.transparent,
+          ],
+        ),
+        border: Border(
+          bottom: BorderSide(
+            color: Colors.white.withValues(alpha: 0.2),
+            width: 1,
+          ),
+        ),
+      ),
+      child: Column(
         children: [
-          // Drawer button
-          Builder(
-            builder: (context) => IconButton(
-              icon: const Icon(Icons.menu, color: Colors.white),
-              onPressed: () => Scaffold.of(context).openDrawer(),
-            ),
-          ),
-          const Text(
-            'حالة التتبع',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.5,
-            ),
-          ),
+          const SizedBox(height: 8),
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+              // أيقونة تحديث على اليسار
               _buildActionButton(
-                icon: Icons.refresh,
+                icon: Icons.refresh_rounded,
                 onPressed: _isRefreshing ? null : _refreshStatus,
                 isLoading: _isRefreshing,
+                tooltip: 'تحديث',
               ),
-              const SizedBox(width: 8),
+
+              // العنوان الرئيسي مع أيقونة تحديد الموقع في المنتصف
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // أيقونة تحديد الموقع مع تأثيرات جمالية
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Colors.green.withValues(alpha: 0.4),
+                            Colors.greenAccent.withValues(alpha: 0.3),
+                            Colors.lightGreenAccent.withValues(alpha: 0.2),
+                          ],
+                          stops: const [0.0, 0.5, 1.0],
+                        ),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.5),
+                          width: 2,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.green.withValues(alpha: 0.4),
+                            blurRadius: 16,
+                            spreadRadius: 2,
+                            offset: const Offset(0, 4),
+                          ),
+                          BoxShadow(
+                            color: Colors.white.withValues(alpha: 0.2),
+                            blurRadius: 8,
+                            spreadRadius: 1,
+                          ),
+                        ],
+                      ),
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          // تأثير توهج خلفي
+                          Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: Colors.greenAccent.withValues(alpha: 0.3),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          // الأيقونة الرئيسية
+                          const Icon(
+                            Icons.my_location_rounded,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Flexible(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'حالة التتبع',
+                            style: _getTextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // نقطة حالة متوهجة
+                              Container(
+                                width: 10,
+                                height: 10,
+                                decoration: BoxDecoration(
+                                  gradient: RadialGradient(
+                                    colors: [Colors.greenAccent, Colors.green],
+                                  ),
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.greenAccent.withValues(
+                                        alpha: 0.9,
+                                      ),
+                                      blurRadius: 10,
+                                      spreadRadius: 3,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      Colors.greenAccent.withValues(alpha: 0.3),
+                                      Colors.green.withValues(alpha: 0.2),
+                                    ],
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.3),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Text(
+                                  'نشط',
+                                  style: _getTextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // أيقونة الملف الشخصي على اليمين
               _buildActionButton(
-                icon: Icons.person,
+                icon: Icons.person_rounded,
                 onPressed: () {
                   Navigator.push(
                     context,
@@ -373,12 +528,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
                     ),
                   );
                 },
-              ),
-              const SizedBox(width: 8),
-              _buildActionButton(
-                icon: Icons.stop_circle_outlined,
-                onPressed: _stopTracking,
-                color: Colors.red.shade300,
+                tooltip: 'الملف الشخصي',
               ),
             ],
           ),
@@ -387,33 +537,110 @@ class _TrackingScreenState extends State<TrackingScreen> {
     );
   }
 
+  /// استخدام نفس الخط العام للتطبيق
+  TextStyle _getTextStyle({
+    double? fontSize,
+    FontWeight? fontWeight,
+    Color? color,
+  }) {
+    final isArabic = LanguageService.instance.isArabic;
+    if (isArabic) {
+      try {
+        return GoogleFonts.cairo(
+          fontSize: fontSize,
+          fontWeight: fontWeight,
+          color: color,
+        );
+      } catch (e) {
+        return TextStyle(
+          fontFamily: 'Noto Sans Arabic',
+          fontFamilyFallback: const ['Cairo', 'Tajawal', 'Arial', 'Roboto'],
+          fontSize: fontSize,
+          fontWeight: fontWeight,
+          color: color,
+        );
+      }
+    } else {
+      return TextStyle(
+        fontFamily: 'Roboto',
+        fontFamilyFallback: const ['Arial', 'Helvetica', 'sans-serif'],
+        fontSize: fontSize,
+        fontWeight: fontWeight,
+        color: color,
+      );
+    }
+  }
+
+  /// بناء زر إجراء بتصميم أنيق ومميز مع تأثيرات جمالية
   Widget _buildActionButton({
     required IconData icon,
     required VoidCallback? onPressed,
     bool isLoading = false,
     Color? color,
+    String? tooltip,
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.3),
-          width: 1,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withValues(alpha: 0.3),
+            Colors.white.withValues(alpha: 0.2),
+            Colors.white.withValues(alpha: 0.15),
+          ],
+          stops: const [0.0, 0.5, 1.0],
         ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.5),
+          width: 2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
+            spreadRadius: 0,
+          ),
+          BoxShadow(
+            color: Colors.white.withValues(alpha: 0.1),
+            blurRadius: 6,
+            offset: const Offset(0, -1),
+            spreadRadius: 0,
+          ),
+        ],
       ),
-      child: IconButton(
-        icon: isLoading
-            ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
-              )
-            : Icon(icon, color: color ?? Colors.white, size: 24),
-        onPressed: onPressed,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(18),
+          splashColor: Colors.white.withValues(alpha: 0.2),
+          highlightColor: Colors.white.withValues(alpha: 0.1),
+          child: Tooltip(
+            message: tooltip ?? '',
+            preferBelow: false,
+            decoration: BoxDecoration(
+              color: Colors.black87,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            textStyle: _getTextStyle(fontSize: 12, color: Colors.white),
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              child: isLoading
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : Icon(icon, color: color ?? Colors.white, size: 24),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -471,8 +698,8 @@ class _TrackingScreenState extends State<TrackingScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          const Text(
-            'التتبع نشط',
+          Text(
+            AppLocalizations().trackingActive,
             style: TextStyle(
               color: Colors.white,
               fontSize: 32,
@@ -509,7 +736,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
           children: [
             Expanded(
               child: StatisticCard(
-                title: 'حالة الخدمة',
+                title: AppLocalizations().serviceStatus,
                 value: _deviceStatus,
                 icon: Icons.sync,
                 color: Colors.blue,
@@ -518,7 +745,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
             const SizedBox(width: 12),
             Expanded(
               child: StatisticCard(
-                title: 'آخر تحديث',
+                title: AppLocalizations().lastUpdate,
                 value: _lastUpdate.length > 20
                     ? '${_lastUpdate.substring(0, 20)}...'
                     : _lastUpdate,
@@ -531,7 +758,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
         if (_currentSpeed != null) ...[
           const SizedBox(height: 12),
           StatisticCard(
-            title: 'السرعة الحالية',
+            title: AppLocalizations().currentSpeed,
             value: '${_currentSpeed!.toStringAsFixed(1)} km/h',
             icon: Icons.speed,
             color: Colors.orange,

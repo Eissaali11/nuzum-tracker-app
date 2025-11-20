@@ -313,7 +313,7 @@ class LocationForegroundService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(content)
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .setSmallIcon(R.drawable.ic_bg_service_small)
             .setContentIntent(pendingIntent)
             .setOngoing(true) // إشعار دائم لا يمكن إزالته
             .setPriority(NotificationCompat.PRIORITY_LOW) // أولوية منخفضة لتقليل الإزعاج

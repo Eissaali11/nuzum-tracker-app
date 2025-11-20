@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
 import '../models/attendance_model.dart';
+import '../services/language_service.dart';
+import '../utils/app_localizations.dart';
 import '../utils/attendance_calculator.dart';
 import '../widgets/attendance_item.dart';
 
@@ -24,12 +27,41 @@ class _AttendanceListScreenState extends State<AttendanceListScreen> {
   late int _selectedMonth;
   late List<Attendance> _displayList;
 
-  // خط عربي أنيق
-  TextStyle get arabicFont {
-    return const TextStyle(
-      fontFamily: 'Noto Sans Arabic',
-      fontFamilyFallback: ['Cairo', 'Tajawal', 'Arial', 'Roboto'],
-    );
+  final _localizations = AppLocalizations();
+
+  // استخدام نفس الخط العام للتطبيق (Google Fonts Cairo)
+  TextStyle _getTextStyle({
+    double? fontSize,
+    FontWeight? fontWeight,
+    Color? color,
+  }) {
+    final isArabic = LanguageService.instance.isArabic;
+    if (isArabic) {
+      try {
+        return GoogleFonts.cairo(
+          fontSize: fontSize,
+          fontWeight: fontWeight,
+          color: color,
+        );
+      } catch (e) {
+        // في حالة فشل تحميل Cairo، استخدم الخط الافتراضي من Theme
+        return TextStyle(
+          fontFamily: 'Noto Sans Arabic',
+          fontFamilyFallback: const ['Cairo', 'Tajawal', 'Arial', 'Roboto'],
+          fontSize: fontSize,
+          fontWeight: fontWeight,
+          color: color,
+        );
+      }
+    } else {
+      return TextStyle(
+        fontFamily: 'Roboto',
+        fontFamilyFallback: const ['Arial', 'Helvetica', 'sans-serif'],
+        fontSize: fontSize,
+        fontWeight: fontWeight,
+        color: color,
+      );
+    }
   }
 
   @override
@@ -89,8 +121,8 @@ class _AttendanceListScreenState extends State<AttendanceListScreen> {
             backgroundColor: Colors.white,
             foregroundColor: Colors.black,
             title: Text(
-              'داشبورد الحضور',
-              style: arabicFont.copyWith(
+              _localizations.attendanceDashboard,
+              style: _getTextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
               ),
@@ -107,46 +139,52 @@ class _AttendanceListScreenState extends State<AttendanceListScreen> {
                 child: IconButton(
                   icon: const Icon(Icons.calendar_today, color: Colors.white),
                   onPressed: _selectMonth,
-                  tooltip: 'اختيار الشهر',
+                  tooltip: _localizations.selectMonth,
                 ),
               ),
             ],
           ),
-          SliverToBoxAdapter(
-            child: _displayList.isEmpty
-                ? _buildEmptyState()
-                : Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // بطاقة الشهر المحدد
-                        _buildMonthSelectorCard(),
-                        const SizedBox(height: 16),
+          if (_displayList.isEmpty)
+            SliverFillRemaining(
+              child: _buildEmptyState(),
+            )
+          else
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // بطاقة الشهر المحدد
+                    _buildMonthSelectorCard(),
+                    const SizedBox(height: 16),
 
-                        // بطاقة نسبة الحضور الرئيسية
-                        _buildMainAttendanceCard(attendanceRate, totalDays),
-                        const SizedBox(height: 16),
-
-                        // بطاقات الإحصائيات
-                        _buildStatisticsCards(
-                          presentDays,
-                          absentDays,
-                          lateDays,
-                          earlyLeaveDays,
-                          totalHours,
-                          holidayDays,
-                        ),
-                        const SizedBox(height: 16),
-
-                        // قائمة الحضور
-                        _buildAttendanceListHeader(),
-                        const SizedBox(height: 12),
-                        _buildAttendanceList(),
-                      ],
+                    // داش بورد تحليلي مع دوائر تقدم
+                    _buildAnalyticalDashboard(
+                      attendanceRate: attendanceRate,
+                      totalDays: totalDays,
+                      presentDays: presentDays,
+                      absentDays: absentDays,
+                      lateDays: lateDays,
+                      earlyLeaveDays: earlyLeaveDays,
+                      totalHours: totalHours,
+                      holidayDays: holidayDays,
                     ),
-                  ),
-          ),
+                    const SizedBox(height: 16),
+
+                    // قائمة الحضور
+                    _buildAttendanceListHeader(),
+                    const SizedBox(height: 12),
+                  ],
+                ),
+              ),
+            ),
+          // قائمة الحضور في SliverList منفصلة
+          if (_displayList.isNotEmpty)
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              sliver: _buildAttendanceListSliver(),
+            ),
         ],
       ),
     );
@@ -171,8 +209,8 @@ class _AttendanceListScreenState extends State<AttendanceListScreen> {
           ),
           const SizedBox(height: 24),
           Text(
-            'لا توجد بيانات حضور',
-            style: arabicFont.copyWith(
+            _localizations.noAttendanceData,
+            style: _getTextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
               color: Colors.grey[700],
@@ -180,8 +218,8 @@ class _AttendanceListScreenState extends State<AttendanceListScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'سيتم عرض بيانات الحضور هنا عند توفرها',
-            style: arabicFont.copyWith(fontSize: 14, color: Colors.grey[600]),
+            _localizations.attendanceDataWillAppear,
+            style: _getTextStyle(fontSize: 14, color: Colors.grey[600]),
           ),
         ],
       ),
@@ -213,13 +251,13 @@ class _AttendanceListScreenState extends State<AttendanceListScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'الشهر المحدد',
-                style: arabicFont.copyWith(color: Colors.white70, fontSize: 14),
+                _localizations.selectedMonth,
+                style: _getTextStyle(color: Colors.white70, fontSize: 14),
               ),
               const SizedBox(height: 8),
               Text(
-                DateFormat('MMMM yyyy', 'ar').format(_selectedDate),
-                style: arabicFont.copyWith(
+                DateFormat('MMMM yyyy', LanguageService.instance.isArabic ? 'ar' : 'en').format(_selectedDate),
+                style: _getTextStyle(
                   color: Colors.white,
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
@@ -244,21 +282,249 @@ class _AttendanceListScreenState extends State<AttendanceListScreen> {
     );
   }
 
-  Widget _buildMainAttendanceCard(double rate, int totalDays) {
-    final rateColor = rate >= 90
+  /// بناء داش بورد تحليلي احترافي مع دوائر تقدم
+  Widget _buildAnalyticalDashboard({
+    required double attendanceRate,
+    required int totalDays,
+    required int presentDays,
+    required int absentDays,
+    required int lateDays,
+    required int earlyLeaveDays,
+    required double totalHours,
+    required int holidayDays,
+  }) {
+    final rateColor = attendanceRate >= 90
         ? Colors.green
-        : rate >= 70
-        ? Colors.orange
-        : Colors.red;
+        : attendanceRate >= 70
+            ? Colors.orange
+            : Colors.red;
+
+    final workingDays = totalDays - holidayDays;
+    final presentRate = workingDays > 0 ? (presentDays / workingDays * 100) : 0.0;
+    final absentRate = workingDays > 0 ? (absentDays / workingDays * 100) : 0.0;
+    final lateRate = workingDays > 0 ? (lateDays / workingDays * 100) : 0.0;
+    final earlyLeaveRate = workingDays > 0 ? (earlyLeaveDays / workingDays * 100) : 0.0;
 
     return Container(
-      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFFF3F4F6),
+            Colors.white,
+            const Color(0xFFF9FAFB),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(
+          color: const Color(0xFFE5E7EB),
+          width: 2,
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // رأس الداش بورد
+            Row(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [rateColor, rateColor.withValues(alpha: 0.8)],
+                    ),
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: [
+                      BoxShadow(
+                        color: rateColor.withValues(alpha: 0.4),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: const Center(
+                    child: Text('📊', style: TextStyle(fontSize: 28)),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'داش بورد تحليلي',
+                        style: _getTextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFF1F2937),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'تحليل شامل للحضور والانصراف',
+                        style: _getTextStyle(
+                          fontSize: 13,
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            // بطاقة نسبة الحضور الرئيسية مع دائرة تقدم
+            _buildMainRateCard(attendanceRate, totalDays, rateColor),
+            const SizedBox(height: 20),
+            // خط فاصل
+            Container(
+              height: 1,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.transparent,
+                    Colors.grey[300]!,
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            // بطاقات الإحصائيات مع دوائر تقدم
+            Text(
+              'إحصائيات مفصلة',
+              style: _getTextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: const Color(0xFF1F2937),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // الصف الأول: الحضور والغياب
+            Row(
+              children: [
+                Expanded(
+                  child: _buildCircularStatCard(
+                    title: _localizations.present,
+                    value: presentDays,
+                    total: workingDays,
+                    percentage: presentRate,
+                    color: Colors.green,
+                    emoji: '✅',
+                    icon: Icons.check_circle_rounded,
+                    unit: _localizations.days,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildCircularStatCard(
+                    title: _localizations.absent,
+                    value: absentDays,
+                    total: workingDays,
+                    percentage: absentRate,
+                    color: Colors.red,
+                    emoji: '❌',
+                    icon: Icons.cancel_rounded,
+                    unit: _localizations.days,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            // الصف الثاني: التأخير والخروج المبكر
+            Row(
+              children: [
+                Expanded(
+                  child: _buildCircularStatCard(
+                    title: _localizations.late,
+                    value: lateDays,
+                    total: workingDays,
+                    percentage: lateRate,
+                    color: Colors.orange,
+                    emoji: '⏰',
+                    icon: Icons.schedule_rounded,
+                    unit: _localizations.times,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildCircularStatCard(
+                    title: _localizations.earlyLeave,
+                    value: earlyLeaveDays,
+                    total: workingDays,
+                    percentage: earlyLeaveRate,
+                    color: Colors.blue,
+                    emoji: '🚪',
+                    icon: Icons.exit_to_app_rounded,
+                    unit: _localizations.times,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            // الصف الثالث: الساعات والإجازات
+            Row(
+              children: [
+                Expanded(
+                  child: _buildHoursCard(totalHours),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildCircularStatCard(
+                    title: _localizations.holidays,
+                    value: holidayDays,
+                    total: totalDays,
+                    percentage: totalDays > 0 ? (holidayDays / totalDays * 100) : 0.0,
+                    color: Colors.teal,
+                    emoji: '🏖️',
+                    icon: Icons.beach_access_rounded,
+                    unit: _localizations.day,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// بطاقة نسبة الحضور الرئيسية مع دائرة تقدم كبيرة
+  Widget _buildMainRateCard(double rate, int totalDays, Color rateColor) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            rateColor.withValues(alpha: 0.1),
+            Colors.white,
+            rateColor.withValues(alpha: 0.05),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: rateColor.withValues(alpha: 0.3),
+          width: 2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: rateColor.withValues(alpha: 0.2),
             blurRadius: 20,
             offset: const Offset(0, 8),
           ),
@@ -270,11 +536,11 @@ class _AttendanceListScreenState extends State<AttendanceListScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'نسبة الحضور',
-                style: arabicFont.copyWith(
+                'نسبة الحضور الإجمالية',
+                style: _getTextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  color: Colors.grey[800],
+                  color: const Color(0xFF1F2937),
                 ),
               ),
               Container(
@@ -283,34 +549,44 @@ class _AttendanceListScreenState extends State<AttendanceListScreen> {
                   vertical: 6,
                 ),
                 decoration: BoxDecoration(
-                  color: rateColor.withValues(alpha: 0.1),
+                  gradient: LinearGradient(
+                    colors: [rateColor, rateColor.withValues(alpha: 0.8)],
+                  ),
                   borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: rateColor.withValues(alpha: 0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
                 ),
                 child: Text(
                   rate >= 90
                       ? 'ممتاز'
                       : rate >= 70
-                      ? 'جيد'
-                      : 'يحتاج تحسين',
-                  style: TextStyle(
-                    color: rateColor,
+                          ? 'جيد'
+                          : 'يحتاج تحسين',
+                  style: const TextStyle(
+                    color: Colors.white,
                     fontSize: 12,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 24),
+          // دائرة تقدم كبيرة مع النسبة المئوية
           Stack(
             alignment: Alignment.center,
             children: [
               SizedBox(
-                width: 180,
-                height: 180,
+                width: 200,
+                height: 200,
                 child: CircularProgressIndicator(
                   value: rate / 100,
-                  strokeWidth: 16,
+                  strokeWidth: 20,
                   backgroundColor: Colors.grey[200],
                   valueColor: AlwaysStoppedAnimation<Color>(rateColor),
                 ),
@@ -319,18 +595,29 @@ class _AttendanceListScreenState extends State<AttendanceListScreen> {
                 children: [
                   Text(
                     '${rate.toStringAsFixed(1)}%',
-                    style: arabicFont.copyWith(
-                      fontSize: 48,
+                    style: _getTextStyle(
+                      fontSize: 52,
                       fontWeight: FontWeight.bold,
                       color: rateColor,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'من $totalDays يوم',
-                    style: arabicFont.copyWith(
-                      fontSize: 14,
-                      color: Colors.grey[600],
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: rateColor.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      'من $totalDays يوم',
+                      style: _getTextStyle(
+                        fontSize: 14,
+                        color: Colors.grey[700],
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ],
@@ -342,161 +629,242 @@ class _AttendanceListScreenState extends State<AttendanceListScreen> {
     );
   }
 
-  Widget _buildStatisticsCards(
-    int present,
-    int absent,
-    int late,
-    int earlyLeave,
-    double hours,
-    int holiday,
-  ) {
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: _buildStatCard(
-                'حاضر',
-                present.toString(),
-                Colors.green,
-                Icons.check_circle_rounded,
-                'أيام',
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildStatCard(
-                'غائب',
-                absent.toString(),
-                Colors.red,
-                Icons.cancel_rounded,
-                'أيام',
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: _buildStatCard(
-                'متأخر',
-                late.toString(),
-                Colors.orange,
-                Icons.schedule_rounded,
-                'مرات',
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildStatCard(
-                'خروج مبكر',
-                earlyLeave.toString(),
-                Colors.blue,
-                Icons.exit_to_app_rounded,
-                'مرات',
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: _buildStatCard(
-                'إجمالي الساعات',
-                hours.toStringAsFixed(0),
-                Colors.purple,
-                Icons.access_time_rounded,
-                'ساعة',
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildStatCard(
-                'إجازات',
-                holiday.toString(),
-                Colors.teal,
-                Icons.beach_access_rounded,
-                'يوم',
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatCard(
-    String title,
-    String value,
-    Color color,
-    IconData icon,
-    String unit,
-  ) {
+  /// بطاقة إحصائية مع دائرة تقدم
+  Widget _buildCircularStatCard({
+    required String title,
+    required int value,
+    required int total,
+    required double percentage,
+    required Color color,
+    required String emoji,
+    required IconData icon,
+    required String unit,
+  }) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: color.withValues(alpha: 0.2),
+          width: 1.5,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
+            color: color.withValues(alpha: 0.1),
+            blurRadius: 12,
             offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // رأس البطاقة
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Container(
-                padding: const EdgeInsets.all(8),
+                width: 40,
+                height: 40,
                 decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(10),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [color, color.withValues(alpha: 0.8)],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: color.withValues(alpha: 0.3),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
                 ),
-                child: Icon(icon, color: color, size: 24),
+                child: Center(
+                  child: Text(emoji, style: const TextStyle(fontSize: 20)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: _getTextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF1F2937),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // دائرة تقدم مع القيمة
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              SizedBox(
+                width: 100,
+                height: 100,
+                child: CircularProgressIndicator(
+                  value: percentage / 100,
+                  strokeWidth: 10,
+                  backgroundColor: color.withValues(alpha: 0.1),
+                  valueColor: AlwaysStoppedAnimation<Color>(color),
+                ),
+              ),
+              Column(
+                children: [
+                  Text(
+                    value.toString(),
+                    style: _getTextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
+                  ),
+                  Text(
+                    '${percentage.toStringAsFixed(0)}%',
+                    style: _getTextStyle(
+                      fontSize: 11,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
           const SizedBox(height: 12),
+          // الوحدة
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              unit,
+              style: _getTextStyle(
+                fontSize: 12,
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// بطاقة الساعات الإجمالية
+  Widget _buildHoursCard(double totalHours) {
+    final hoursColor = Colors.purple;
+    final avgHoursPerDay = totalHours > 0 && _filteredAttendance.isNotEmpty
+        ? totalHours / _filteredAttendance.length
+        : 0.0;
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            hoursColor.withValues(alpha: 0.1),
+            Colors.white,
+            hoursColor.withValues(alpha: 0.05),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: hoursColor.withValues(alpha: 0.2),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: hoursColor.withValues(alpha: 0.1),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
-                value,
-                style: arabicFont.copyWith(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                  color: color,
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [hoursColor, hoursColor.withValues(alpha: 0.8)],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: hoursColor.withValues(alpha: 0.3),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: const Center(
+                  child: Text('⏱️', style: TextStyle(fontSize: 20)),
                 ),
               ),
-              const SizedBox(width: 4),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
+              const SizedBox(width: 10),
+              Expanded(
                 child: Text(
-                  unit,
-                  style: arabicFont.copyWith(
-                    fontSize: 12,
-                    color: Colors.grey[600],
+                  _localizations.totalHours,
+                  style: _getTextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF1F2937),
                   ),
                 ),
               ),
             ],
           ),
+          const SizedBox(height: 16),
+          Text(
+            totalHours.toStringAsFixed(1),
+            style: _getTextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.bold,
+              color: hoursColor,
+            ),
+          ),
           const SizedBox(height: 4),
           Text(
-            title,
-            style: arabicFont.copyWith(
-              fontSize: 13,
-              color: Colors.grey[700],
+            _localizations.hour,
+            style: _getTextStyle(
+              fontSize: 12,
+              color: Colors.grey[600],
               fontWeight: FontWeight.w500,
             ),
           ),
+          if (avgHoursPerDay > 0) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: hoursColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'متوسط ${avgHoursPerDay.toStringAsFixed(1)} ساعة/يوم',
+                style: _getTextStyle(
+                  fontSize: 11,
+                  color: hoursColor,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -507,8 +875,8 @@ class _AttendanceListScreenState extends State<AttendanceListScreen> {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(
-          'سجل الحضور',
-          style: arabicFont.copyWith(
+          _localizations.attendanceRecord,
+          style: _getTextStyle(
             fontSize: 20,
             fontWeight: FontWeight.bold,
             color: Colors.grey[800],
@@ -521,7 +889,7 @@ class _AttendanceListScreenState extends State<AttendanceListScreen> {
             borderRadius: BorderRadius.circular(20),
           ),
           child: Text(
-            '${_filteredAttendance.length} سجل',
+            '${_filteredAttendance.length} ${_localizations.records}',
             style: TextStyle(
               color: Colors.blue[700],
               fontSize: 12,
@@ -533,34 +901,40 @@ class _AttendanceListScreenState extends State<AttendanceListScreen> {
     );
   }
 
-  Widget _buildAttendanceList() {
+  /// بناء قائمة الحضور كـ SliverList للأداء الأفضل
+  Widget _buildAttendanceListSliver() {
     if (_filteredAttendance.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(40),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          children: [
-            Icon(Icons.inbox_outlined, size: 64, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              'لا توجد سجلات حضور لهذا الشهر',
-              style: arabicFont.copyWith(fontSize: 16, color: Colors.grey[600]),
-            ),
-          ],
+      return SliverToBoxAdapter(
+        child: Container(
+          padding: const EdgeInsets.all(40),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            children: [
+              Icon(Icons.inbox_outlined, size: 64, color: Colors.grey[400]),
+              const SizedBox(height: 16),
+              Text(
+                _localizations.noAttendanceRecords,
+                style: _getTextStyle(fontSize: 16, color: Colors.grey[600]),
+              ),
+            ],
+          ),
         ),
       );
     }
 
-    return Column(
-      children: _filteredAttendance.map((attendance) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: AttendanceItem(attendance: attendance),
-        );
-      }).toList(),
+    return SliverList(
+      delegate: SliverChildBuilderDelegate(
+        (context, index) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: AttendanceItem(attendance: _filteredAttendance[index]),
+          );
+        },
+        childCount: _filteredAttendance.length,
+      ),
     );
   }
 
@@ -571,7 +945,7 @@ class _AttendanceListScreenState extends State<AttendanceListScreen> {
       firstDate: DateTime(2020),
       lastDate: DateTime.now(),
       initialDatePickerMode: DatePickerMode.year,
-      locale: const Locale('ar'),
+      locale: LanguageService.instance.currentLocale,
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -594,3 +968,4 @@ class _AttendanceListScreenState extends State<AttendanceListScreen> {
     }
   }
 }
+

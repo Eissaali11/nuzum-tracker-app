@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../../models/liability_model.dart';
+import '../../services/language_service.dart';
 import '../../services/liabilities_api_service.dart';
+import '../../utils/app_localizations.dart';
 
 /// ============================================
 /// 💳 صفحة الالتزامات المالية - Liabilities Screen
@@ -21,6 +24,7 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
   String? _error;
   String _selectedFilter = 'all'; // 'all', 'advance', 'damage', 'debt'
   TabController? _tabController;
+  final _localizations = AppLocalizations();
 
   @override
   void initState() {
@@ -63,7 +67,7 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = 'حدث خطأ: $e';
+        _error = '${_localizations.errorOccurred}: $e';
         _isLoading = false;
       });
     }
@@ -106,7 +110,7 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
               IconButton(
                 icon: const Icon(Icons.refresh_rounded),
                 onPressed: _loadData,
-                tooltip: 'تحديث',
+                tooltip: _localizations.refresh,
               ),
             ],
             bottom: PreferredSize(
@@ -138,15 +142,15 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
                     fontSize: 14,
                     fontWeight: FontWeight.normal,
                   ),
-                  tabs: const [
+                  tabs: [
                     Tab(
                       height: 45,
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.account_balance_wallet_rounded, size: 20),
-                          SizedBox(width: 8),
-                          Text('الالتزامات'),
+                          const Icon(Icons.account_balance_wallet_rounded, size: 20),
+                          const SizedBox(width: 8),
+                          Text(_localizations.liabilities),
                         ],
                       ),
                     ),
@@ -155,9 +159,9 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.summarize_rounded, size: 20),
-                          SizedBox(width: 8),
-                          Text('الملخص المالي'),
+                          const Icon(Icons.summarize_rounded, size: 20),
+                          const SizedBox(width: 8),
+                          Text(_localizations.financialSummary),
                         ],
                       ),
                     ),
@@ -230,7 +234,7 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
           ElevatedButton.icon(
             onPressed: _loadData,
             icon: const Icon(Icons.refresh_rounded),
-            label: const Text('إعادة المحاولة'),
+            label: Text(_localizations.retry),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF8B5CF6),
               foregroundColor: Colors.white,
@@ -247,10 +251,10 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
 
   Widget _buildLiabilitiesTab() {
     if (_summary == null) {
-      return const Center(
+      return Center(
         child: Padding(
-          padding: EdgeInsets.all(32.0),
-          child: Text('لا توجد بيانات'),
+          padding: const EdgeInsets.all(32.0),
+          child: Text(_localizations.noData),
         ),
       );
     }
@@ -297,9 +301,9 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
       ),
       child: Column(
         children: [
-          const Text(
-            'ملخص الالتزامات',
-            style: TextStyle(
+          Text(
+            _localizations.liabilitiesSummary,
+            style: const TextStyle(
               color: Colors.white,
               fontSize: 20,
               fontWeight: FontWeight.bold,
@@ -310,7 +314,7 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
             children: [
               Expanded(
                 child: _buildStatCard(
-                  'إجمالي الالتزامات',
+                  _localizations.totalLiabilities,
                   _summary!.totalLiabilities.toStringAsFixed(2),
                   Icons.account_balance_wallet_rounded,
                   Colors.white,
@@ -324,7 +328,7 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
               ),
               Expanded(
                 child: _buildStatCard(
-                  'المبلغ المسدد',
+                  _localizations.paidAmount,
                   _summary!.totalPaid.toStringAsFixed(2),
                   Icons.check_circle_rounded,
                   Colors.white,
@@ -338,7 +342,7 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
               ),
               Expanded(
                 child: _buildStatCard(
-                  'المبلغ المتبقي',
+                  _localizations.remainingAmount,
                   _summary!.totalRemaining.toStringAsFixed(2),
                   Icons.pending_actions_rounded,
                   Colors.white,
@@ -363,7 +367,7 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
         Icon(icon, color: color, size: 28),
         const SizedBox(height: 8),
         Text(
-          '$value ريال',
+          '$value ${_localizations.riyal}',
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.bold,
@@ -388,17 +392,17 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
       scrollDirection: Axis.horizontal,
       child: Row(
         children: [
-          _buildFilterChip('all', 'الكل', Icons.list_rounded),
+          _buildFilterChip('all', _localizations.all, Icons.list_rounded),
           const SizedBox(width: 8),
           _buildFilterChip(
             'advance',
-            'السلف',
+            _localizations.advance,
             Icons.account_balance_wallet_rounded,
           ),
           const SizedBox(width: 8),
-          _buildFilterChip('damage', 'التلفيات', Icons.warning_rounded),
+          _buildFilterChip('damage', _localizations.damages, Icons.warning_rounded),
           const SizedBox(width: 8),
-          _buildFilterChip('debt', 'الديون', Icons.money_off_rounded),
+          _buildFilterChip('debt', _localizations.debt, Icons.money_off_rounded),
         ],
       ),
     );
@@ -462,9 +466,9 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
               ),
             ),
             const SizedBox(height: 24),
-            const Text(
-              'لا توجد التزامات',
-              style: TextStyle(
+            Text(
+              _localizations.noLiabilities,
+              style: const TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
                 color: Color(0xFF1F2937),
@@ -472,7 +476,7 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
             ),
             const SizedBox(height: 8),
             Text(
-              'لا توجد التزامات تطابق الفلتر المحدد',
+              _localizations.noLiabilitiesFilter,
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 14, color: Colors.grey[600]),
             ),
@@ -623,7 +627,7 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'التزام #${liability.id}',
+                            '${_localizations.liability} #${liability.id}',
                             style: TextStyle(
                               fontSize: 13,
                               color: Colors.white.withValues(alpha: 0.9),
@@ -679,7 +683,7 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
                       children: [
                         Expanded(
                           child: _buildAmountCard(
-                            'المبلغ الكلي',
+                            _localizations.totalAmount,
                             liability.amount.toStringAsFixed(2),
                             Colors.red,
                             Icons.attach_money_rounded,
@@ -688,7 +692,7 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
                         const SizedBox(width: 12),
                         Expanded(
                           child: _buildAmountCard(
-                            'المسدد',
+                            _localizations.paid,
                             liability.paid.toStringAsFixed(2),
                             Colors.green,
                             Icons.check_circle_rounded,
@@ -697,7 +701,7 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
                         const SizedBox(width: 12),
                         Expanded(
                           child: _buildAmountCard(
-                            'المتبقي',
+                            _localizations.remaining,
                             liability.remaining.toStringAsFixed(2),
                             Colors.orange,
                             Icons.pending_actions_rounded,
@@ -710,9 +714,9 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'نسبة الإنجاز',
-                          style: TextStyle(
+                        Text(
+                          _localizations.progressPercentage,
+                          style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
                             color: Color(0xFF1F2937),
@@ -779,7 +783,7 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    '${liability.monthlyInstallment!.toStringAsFixed(2)} ريال',
+                                    '${liability.monthlyInstallment!.toStringAsFixed(2)} ${_localizations.riyal}',
                                     style: const TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
@@ -790,7 +794,7 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
                                       null) ...[
                                     const SizedBox(height: 4),
                                     Text(
-                                      '${liability.remainingInstallments} أقساط متبقية',
+                                      _localizations.remainingInstallments(liability.remainingInstallments ?? 0),
                                       style: TextStyle(
                                         fontSize: 13,
                                         color: Colors.grey[600],
@@ -815,7 +819,7 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
                           ),
                           const SizedBox(width: 8),
                           Text(
-                            'تاريخ الاستحقاق: ${_formatDate(liability.dueDate!)}',
+                            '${_localizations.dueDate}: ${_formatDate(liability.dueDate!)}',
                             style: TextStyle(
                               fontSize: 13,
                               color: Colors.grey[700],
@@ -866,7 +870,7 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
           ),
           const SizedBox(height: 6),
           Text(
-            '$value ريال',
+            '$value ${_localizations.riyal}',
             style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.bold,
@@ -880,10 +884,10 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
 
   Widget _buildFinancialSummaryTab() {
     if (_financialSummary == null) {
-      return const Center(
+      return Center(
         child: Padding(
-          padding: EdgeInsets.all(32.0),
-          child: Text('لا توجد بيانات'),
+          padding: const EdgeInsets.all(32.0),
+          child: Text(_localizations.noData),
         ),
       );
     }
@@ -919,7 +923,7 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
             const SizedBox(height: 24),
             // Active Damages
             if (_financialSummary!.activeDamages.isNotEmpty) ...[
-              _buildSectionHeader('التلفيات النشطة', Icons.warning_rounded),
+              _buildSectionHeader(_localizations.activeDamages, Icons.warning_rounded),
               const SizedBox(height: 16),
               ..._financialSummary!.activeDamages.map(
                 (damage) => Padding(
@@ -1023,9 +1027,9 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
                 ),
               ),
               const SizedBox(width: 12),
-              const Text(
-                'الملخص المالي',
-                style: TextStyle(
+              Text(
+                _localizations.financialSummary,
+                style: const TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF1F2937),
@@ -1035,22 +1039,22 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
           ),
           const SizedBox(height: 24),
           _buildFinancialRow(
-            'الراتب الحالي',
-            '${_financialSummary!.currentSalary.toStringAsFixed(2)} ريال',
+            _localizations.currentSalary,
+            '${_financialSummary!.currentSalary.toStringAsFixed(2)} ${_localizations.riyal}',
             Icons.account_balance_wallet_rounded,
             Colors.blue,
           ),
           const SizedBox(height: 16),
           _buildFinancialRow(
-            'إجمالي الالتزامات',
-            '${_financialSummary!.totalLiabilities.toStringAsFixed(2)} ريال',
+            _localizations.totalLiabilities,
+            '${_financialSummary!.totalLiabilities.toStringAsFixed(2)} ${_localizations.riyal}',
             Icons.receipt_long_rounded,
             Colors.red,
           ),
           const SizedBox(height: 16),
           _buildFinancialRow(
-            'صافي الراتب بعد الخصومات',
-            '${_financialSummary!.netSalaryAfterDeductions.toStringAsFixed(2)} ريال',
+            _localizations.netSalary,
+            '${_financialSummary!.netSalaryAfterDeductions.toStringAsFixed(2)} ${_localizations.riyal}',
             Icons.account_balance_rounded,
             Colors.green,
           ),
@@ -1060,9 +1064,9 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'نسبة الخصم',
-                style: TextStyle(
+              Text(
+                _localizations.discountRate,
+                style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                   color: Color(0xFF1F2937),
@@ -1264,6 +1268,6 @@ class _LiabilitiesScreenState extends State<LiabilitiesScreen>
   }
 
   String _formatDate(DateTime date) {
-    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    return DateFormat('yyyy-MM-dd', LanguageService.instance.isArabic ? 'ar' : 'en').format(date);
   }
 }

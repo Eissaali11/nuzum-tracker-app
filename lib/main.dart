@@ -1,17 +1,30 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:nuzum_tracker/screens/splash_screen.dart';
+import 'package:nuzum_tracker/services/api_logging_service.dart';
 import 'package:nuzum_tracker/services/api_service.dart';
 import 'package:nuzum_tracker/services/background_service.dart';
+import 'package:nuzum_tracker/services/geofence_service.dart';
+import 'package:nuzum_tracker/services/language_service.dart';
 import 'package:nuzum_tracker/services/location_service.dart';
 import 'package:nuzum_tracker/utils/safe_preferences.dart';
 
+// GlobalKey للوصول إلى Navigator من أي مكان (لإشعارات Geofencing)
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // تعيين Navigator Key لخدمة Geofencing
+  GeofenceService.setNavigatorKey(navigatorKey);
+
+  // تهيئة إشعارات النظام
+  await GeofenceService.initializeNotifications();
 
   // إعطاء وقت للـ platform channels للتهيئة
   // تأخير أطول لضمان جاهزية path_provider
@@ -36,20 +49,51 @@ Future<void> main() async {
       // نستمر في التطبيق حتى لو فشلت تهيئة الخدمة
     }
 
+    // تهيئة API Logging Service - بدء الإرسال الدوري للسجلات
+    try {
+      ApiLoggingService.startPeriodicSending();
+      debugPrint('✅ [Main] API Logging Service initialized');
+    } catch (e) {
+      debugPrint('⚠️ [Main] Warning: Could not initialize API logging: $e');
+    }
+
     // محاولة بدء التتبع تلقائياً إذا كان التطبيق مُعدّ
+    // هذا يضمن بدء التتبع حتى عند فتح التطبيق بعد إغلاقه
     try {
       final jobNumber = await SafePreferences.getString('jobNumber');
       final apiKey = await SafePreferences.getString('apiKey');
-      
-      if (jobNumber != null && apiKey != null && jobNumber.isNotEmpty && apiKey.isNotEmpty) {
+
+      if (jobNumber != null &&
+          apiKey != null &&
+          jobNumber.isNotEmpty &&
+          apiKey.isNotEmpty) {
         debugPrint('🚀 [Main] Auto-starting location tracking...');
-        // تأخير بسيط قبل البدء
-        Future.delayed(const Duration(seconds: 2), () async {
+        // تأخير بسيط قبل البدء لضمان جاهزية جميع الخدمات
+        Future.delayed(const Duration(seconds: 3), () async {
           try {
+            // بدء التتبع - سيبدأ Flutter Background Service تلقائياً
             await startLocationTracking();
             debugPrint('✅ [Main] Location tracking auto-started successfully');
+
+            // التأكد من أن Flutter Background Service يعمل
+            final service = FlutterBackgroundService();
+            final isRunning = await service.isRunning();
+            if (!isRunning) {
+              debugPrint(
+                '⚠️ [Main] Background service not running, starting...',
+              );
+              await service.startService();
+            }
           } catch (e) {
             debugPrint('⚠️ [Main] Could not auto-start tracking: $e');
+            // محاولة إعادة البدء بعد 5 ثواني
+            Future.delayed(const Duration(seconds: 5), () async {
+              try {
+                await startLocationTracking();
+              } catch (e2) {
+                debugPrint('❌ [Main] Retry failed: $e2');
+              }
+            });
           }
         });
       }
@@ -116,6 +160,16 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     // تحميل الخط بعد تأخير لضمان جاهزية platform channels
     _loadArabicFont();
+
+    // الاستماع لتغييرات اللغة
+    LanguageService.instance.addListener(_onLanguageChanged);
+  }
+
+  void _onLanguageChanged() {
+    setState(() {
+      // إعادة تحميل الخطوط عند تغيير اللغة
+      _loadArabicFont();
+    });
   }
 
   Future<void> _loadArabicFont() async {
@@ -153,30 +207,60 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
     debugPrint('🔄 [App] Lifecycle state changed: $state');
 
-    // عند إغلاق التطبيق أو إيقافه
-    if (state == AppLifecycleState.detached ||
+    // لا نرسل حالة التوقف أبداً - التطبيق يجب أن يستمر في العمل حتى عند إغلاقه
+    // فقط عند حذف التطبيق سيتم إيقاف الخدمة
+
+    // عند تصغير النافذة أو إغلاقها - التأكد من استمرار التتبع
+    if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused) {
-      // إرسال حالة التوقف بشكل غير متزامن (لا ننتظر)
-      _sendStopStatusIfNeeded();
+        state == AppLifecycleState.detached) {
+      debugPrint(
+        '📱 [App] App going to background, ensuring tracking continues...',
+      );
+      _ensureTrackingIsActive();
+
+      // التأكد من أن Flutter Background Service يعمل
+      Future.delayed(const Duration(seconds: 1), () async {
+        try {
+          final service = FlutterBackgroundService();
+          final isRunning = await service.isRunning();
+          if (!isRunning) {
+            debugPrint('⚠️ [App] Background service stopped, restarting...');
+            await service.startService();
+          }
+        } catch (e) {
+          debugPrint('⚠️ [App] Could not check/start background service: $e');
+        }
+      });
     }
-    
+
     // عند العودة للتطبيق - التأكد من أن التتبع لا يزال نشطاً
     if (state == AppLifecycleState.resumed) {
       _ensureTrackingIsActive();
     }
   }
-  
+
   Future<void> _ensureTrackingIsActive() async {
     try {
       final jobNumber = await SafePreferences.getString('jobNumber');
       final apiKey = await SafePreferences.getString('apiKey');
-      
-      if (jobNumber != null && apiKey != null && jobNumber.isNotEmpty && apiKey.isNotEmpty) {
+
+      if (jobNumber != null &&
+          apiKey != null &&
+          jobNumber.isNotEmpty &&
+          apiKey.isNotEmpty) {
         final isActive = await isTrackingActive();
         if (!isActive) {
           debugPrint('🔄 [App] Tracking is not active, restarting...');
           await startLocationTracking();
+        } else {
+          // حتى لو كان التتبع نشطاً، أرسل تحديث فوري للتأكد
+          debugPrint('✅ [App] Tracking is active, sending immediate update...');
+          try {
+            await performLocationUpdate();
+          } catch (e) {
+            debugPrint('⚠️ [App] Could not send immediate update: $e');
+          }
         }
       }
     } catch (e) {
@@ -186,8 +270,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    // إرسال حالة التوقف عند إغلاق التطبيق
-    _sendStopStatusIfNeeded();
+    // لا نرسل حالة التوقف - التطبيق يجب أن يستمر في العمل
+    // الخدمة الخلفية ستستمر في إرسال الموقع حتى عند إغلاق التطبيق
+    debugPrint('ℹ️ [App] App disposing, but background service will continue');
+    LanguageService.instance.removeListener(_onLanguageChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -221,6 +307,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final isArabic = LanguageService.instance.isArabic;
+
     // خط عربي أنيق - Cairo مع معالجة الأخطاء
     // استخدام خط افتراضي حتى يتم تحميل Cairo
     final arabicFont =
@@ -230,21 +318,33 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           fontFamilyFallback: ['Cairo', 'Tajawal', 'Arial', 'Roboto'],
         );
 
-    final textTheme =
-        _cairoTextTheme?.apply(
-          bodyColor: Colors.black87,
-          displayColor: Colors.black87,
-        ) ??
-        ThemeData.light().textTheme.apply(
-          fontFamily: 'Noto Sans Arabic',
-          fontFamilyFallback: ['Cairo', 'Tajawal', 'Arial', 'Roboto'],
-          bodyColor: Colors.black87,
-          displayColor: Colors.black87,
-        );
+    // خط إنجليزي
+    final englishFont = const TextStyle(
+      fontFamily: 'Roboto',
+      fontFamilyFallback: ['Arial', 'Helvetica', 'sans-serif'],
+    );
+
+    final textTheme = isArabic
+        ? (_cairoTextTheme?.apply(
+                bodyColor: Colors.black87,
+                displayColor: Colors.black87,
+              ) ??
+              ThemeData.light().textTheme.apply(
+                fontFamily: 'Noto Sans Arabic',
+                fontFamilyFallback: ['Cairo', 'Tajawal', 'Arial', 'Roboto'],
+                bodyColor: Colors.black87,
+                displayColor: Colors.black87,
+              ))
+        : ThemeData.light().textTheme.apply(
+            fontFamily: 'Roboto',
+            fontFamilyFallback: ['Arial', 'Helvetica', 'sans-serif'],
+            bodyColor: Colors.black87,
+            displayColor: Colors.black87,
+          );
 
     return MaterialApp(
       title: 'Nuzum Tracker',
-      locale: const Locale('ar'),
+      locale: LanguageService.instance.currentLocale,
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
@@ -261,7 +361,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           backgroundColor: Colors.white,
           foregroundColor: Colors.black,
           iconTheme: const IconThemeData(color: Color(0xFF1A237E)),
-          titleTextStyle: arabicFont.copyWith(
+          titleTextStyle: (isArabic ? arabicFont : englishFont).copyWith(
             color: Colors.black,
             fontSize: 20,
             fontWeight: FontWeight.bold,
@@ -279,7 +379,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8.0),
             ),
-            textStyle: arabicFont.copyWith(
+            textStyle: (isArabic ? arabicFont : englishFont).copyWith(
               fontSize: 16,
               fontWeight: FontWeight.w600,
             ),
@@ -287,6 +387,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         ),
       ),
       debugShowCheckedModeBanner: false,
+      navigatorKey: navigatorKey,
       home: const SplashScreen(),
     );
   }

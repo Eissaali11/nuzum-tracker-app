@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/notification_model.dart' as models;
 import '../../services/notifications_api_service.dart';
+import '../../utils/app_localizations.dart';
 import '../requests/request_details_screen.dart';
 
 /// ============================================
@@ -21,6 +22,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   bool _isLoading = true;
   String? _error;
   String _filter = 'all'; // 'all' or 'unread'
+  final _localizations = AppLocalizations();
 
   @override
   void initState() {
@@ -55,7 +57,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = 'حدث خطأ: $e';
+        _error = '${_localizations.errorOccurred}: $e';
         _isLoading = false;
       });
     }
@@ -122,8 +124,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تم تحديد جميع الإشعارات كمقروءة'),
+          SnackBar(
+            content: Text(_localizations.allMarkedRead),
             backgroundColor: Colors.green,
           ),
         );
@@ -158,7 +160,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   child: TextButton.icon(
                     onPressed: _markAllAsRead,
                     icon: const Icon(Icons.done_all_rounded, size: 18),
-                    label: const Text('تحديد الكل'),
+                    label: Text(_localizations.markAllRead),
                     style: TextButton.styleFrom(
                       foregroundColor: Colors.white,
                     ),
@@ -167,7 +169,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               IconButton(
                 icon: const Icon(Icons.refresh_rounded),
                 onPressed: _loadNotifications,
-                tooltip: 'تحديث',
+                tooltip: _localizations.refresh,
               ),
             ],
             bottom: PreferredSize(
@@ -183,12 +185,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: _buildFilterTab('all', 'الكل', Icons.list_rounded),
+                      child: _buildFilterTab('all', _localizations.all, Icons.list_rounded),
                     ),
                     Expanded(
                       child: _buildFilterTab(
                         'unread',
-                        'غير المقروءة',
+                        _localizations.unread,
                         Icons.notifications_active_rounded,
                       ),
                     ),
@@ -248,7 +250,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         children: [
           Expanded(
             child: _buildStatItem(
-              'إجمالي الإشعارات',
+              _localizations.totalNotifications,
               '${_allNotifications.length}',
               Icons.notifications_rounded,
               Colors.white,
@@ -262,7 +264,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ),
           Expanded(
             child: _buildStatItem(
-              'غير المقروءة',
+              _localizations.unread,
               '$_unreadCount',
               Icons.notifications_active_rounded,
               Colors.white,
@@ -276,7 +278,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ),
           Expanded(
             child: _buildStatItem(
-              'المقروءة',
+              _localizations.read,
               '${_allNotifications.length - _unreadCount}',
               Icons.done_all_rounded,
               Colors.white,
@@ -427,7 +429,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ElevatedButton.icon(
             onPressed: _loadNotifications,
             icon: const Icon(Icons.refresh_rounded),
-            label: const Text('إعادة المحاولة'),
+            label: Text(_localizations.retry),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF8B5CF6),
               foregroundColor: Colors.white,
@@ -474,9 +476,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          const Text(
-            'لا توجد إشعارات',
-            style: TextStyle(
+          Text(
+            _localizations.noNotifications,
+            style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
               color: Color(0xFF1F2937),
@@ -485,8 +487,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           const SizedBox(height: 8),
           Text(
             _filter == 'unread'
-                ? 'لا توجد إشعارات غير مقروءة'
-                : 'لم يتم العثور على أي إشعارات',
+                ? _localizations.noUnreadNotifications
+                : _localizations.noNotificationsFound,
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 14,

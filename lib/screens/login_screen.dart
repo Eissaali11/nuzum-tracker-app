@@ -89,6 +89,11 @@ class _LoginScreenState extends State<LoginScreen>
           _employeeIdController.text.trim(),
         );
         await SafePreferences.setString('apiKey', 'test_location_key_2025');
+        // حفظ nationalId للتحقق من حالة تسجيل الدخول
+        await SafePreferences.setString(
+          'nationalId',
+          _nationalIdController.text.trim(),
+        );
 
         // الانتقال للشاشة الرئيسية
         if (mounted) {

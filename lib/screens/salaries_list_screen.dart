@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../models/salary_model.dart';
+import '../services/language_service.dart';
+import '../utils/app_localizations.dart';
 import '../utils/responsive_helper.dart';
 import '../widgets/salary_item.dart';
 
@@ -9,8 +11,9 @@ import '../widgets/salary_item.dart';
 /// ============================================
 class SalariesListScreen extends StatelessWidget {
   final List<Salary> salariesList;
+  final _localizations = AppLocalizations();
 
-  const SalariesListScreen({super.key, required this.salariesList});
+  SalariesListScreen({super.key, required this.salariesList});
 
   List<Salary> get _displayList {
     // استخدام البيانات الفعلية من API فقط
@@ -41,17 +44,17 @@ class SalariesListScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
       body: _displayList.isEmpty
-          ? const Center(
+          ? Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.account_balance_wallet,
                     size: 64,
                     color: Colors.grey,
                   ),
-                  SizedBox(height: 16),
-                  Text('لا توجد رواتب'),
+                  const SizedBox(height: 16),
+                  Text(_localizations.noSalaries),
                 ],
               ),
             )
@@ -94,7 +97,7 @@ class SalariesListScreen extends StatelessWidget {
                       child: Column(
                         children: [
                           Text(
-                            'إحصائيات الرواتب',
+                            _localizations.salaryStatistics,
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: titleFontSize,
@@ -111,7 +114,7 @@ class SalariesListScreen extends StatelessWidget {
                                       children: [
                                         Expanded(
                                           child: _buildStatItem(
-                                            'إجمالي',
+                                            _localizations.totalSalaries,
                                             totalAmount.toStringAsFixed(0),
                                             Colors.green,
                                             Icons.account_balance_wallet,
@@ -120,7 +123,7 @@ class SalariesListScreen extends StatelessWidget {
                                         const SizedBox(width: 12),
                                         Expanded(
                                           child: _buildStatItem(
-                                            'متوسط',
+                                            _localizations.averageSalary,
                                             averageAmount.toStringAsFixed(0),
                                             Colors.blue,
                                             Icons.trending_up,
@@ -204,9 +207,9 @@ class SalariesListScreen extends StatelessWidget {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      const Text(
-                                        'آخر راتب',
-                                        style: TextStyle(
+                                      Text(
+                                        _localizations.lastSalary,
+                                        style: const TextStyle(
                                           color: Colors.white70,
                                           fontSize: 13,
                                         ),
@@ -275,9 +278,9 @@ class SalariesListScreen extends StatelessWidget {
                                         size: 20,
                                       ),
                                       const SizedBox(width: 8),
-                                      const Text(
-                                        'أعلى راتب',
-                                        style: TextStyle(
+                                      Text(
+                                        _localizations.highestSalary,
+                                        style: const TextStyle(
                                           color: Colors.white70,
                                           fontSize: 13,
                                         ),

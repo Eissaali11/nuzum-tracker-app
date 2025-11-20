@@ -12,8 +12,11 @@ import '../models/complete_employee_response.dart';
 import '../models/employee_model.dart';
 import '../models/operation_model.dart';
 import '../models/salary_model.dart';
+import '../models/vehicle_details_response.dart';
+import '../services/api_logging_service.dart';
 import '../services/auth_service.dart';
 import '../utils/api_response.dart';
+import '../utils/safe_preferences.dart';
 
 /// ============================================
 /// 👤 خدمة API للموظف - Employee API Service
@@ -206,6 +209,247 @@ class EmployeeApiService {
         );
       }
       return ApiResponse.error('حدث خطأ في الاتصال: $e');
+    }
+  }
+
+  /// ============================================
+  /// 🚗 جلب تفاصيل السيارة - Get Car Details
+  /// ============================================
+  static Future<ApiResponse<Car>> getCarDetails({
+    required String carId,
+    required String jobNumber,
+    required String apiKey,
+    String? employeeId,
+  }) async {
+    try {
+      // محاولة جلب employeeId من البيانات المحفوظة إذا لم يكن متوفراً
+      if (employeeId == null || employeeId.isEmpty) {
+        try {
+          employeeId = await SafePreferences.getString('employee_id');
+          debugPrint('🔍 [EmployeeAPI] Retrieved employee_id from storage: $employeeId');
+        } catch (e) {
+          debugPrint('⚠️ [EmployeeAPI] Could not get employee_id: $e');
+        }
+      }
+
+      // محاولة استخدام endpoint الجديد من nuzum.site
+      // 1. محاولة جلب عبر vehicle_id (GET /api/vehicles/{vehicle_id}/details)
+      if (carId.isNotEmpty) {
+        try {
+          final url = ApiConfig.getVehicleDetailsUrl(carId);
+          debugPrint('🚀 [EmployeeAPI] [1/4] Attempting to fetch vehicle details from: $url');
+          debugPrint('   📋 Endpoint: GET /api/vehicles/{vehicle_id}/details');
+          
+          final response = await http
+              .get(
+                Uri.parse(url),
+                headers: await _getHeaders(includeToken: false), // nuzum.site قد لا يحتاج token
+              )
+              .timeout(timeoutDuration);
+
+          debugPrint('📥 [EmployeeAPI] Vehicle details response status: ${response.statusCode}');
+          debugPrint('📥 [EmployeeAPI] Vehicle details response body: ${response.body.length > 500 ? response.body.substring(0, 500) : response.body}');
+
+          if (response.statusCode == 200) {
+            final data = jsonDecode(response.body) as Map<String, dynamic>;
+            debugPrint('✅ [EmployeeAPI] Vehicle details data keys: ${data.keys.toList()}');
+            
+            // إذا كانت الاستجابة تحتوي على vehicle wrapper (الشكل الجديد)
+            if (data['vehicle'] != null) {
+              try {
+                final vehicleData = data['vehicle'] as Map<String, dynamic>;
+                debugPrint('🚗 [EmployeeAPI] Found vehicle wrapper, parsing...');
+                final car = Car.fromJson(vehicleData);
+                debugPrint('✅ [EmployeeAPI] Successfully parsed car from vehicle wrapper');
+                return ApiResponse.success(car, 'تم جلب التفاصيل بنجاح');
+              } catch (e) {
+                debugPrint('❌ [EmployeeAPI] Error parsing car from vehicle wrapper: $e');
+              }
+            }
+            // إذا كانت الاستجابة تحتوي على بيانات السيارة مباشرة
+            if (data.containsKey('car_id') || data.containsKey('plate_number') || data.containsKey('vehicle_id') || data.containsKey('id')) {
+              try {
+                final car = Car.fromJson(data);
+                debugPrint('✅ [EmployeeAPI] Successfully parsed car from vehicle details endpoint');
+                return ApiResponse.success(car, 'تم جلب التفاصيل بنجاح');
+              } catch (e) {
+                debugPrint('❌ [EmployeeAPI] Error parsing car data: $e');
+              }
+            }
+            // إذا كانت الاستجابة تحتوي على data wrapper
+            if (data['data'] != null) {
+              try {
+                final car = Car.fromJson(data['data'] as Map<String, dynamic>);
+                debugPrint('✅ [EmployeeAPI] Successfully parsed car from data wrapper');
+                return ApiResponse.success(car, 'تم جلب التفاصيل بنجاح');
+              } catch (e) {
+                debugPrint('❌ [EmployeeAPI] Error parsing car from data wrapper: $e');
+              }
+            }
+          } else {
+            debugPrint('⚠️ [EmployeeAPI] Vehicle details endpoint returned status: ${response.statusCode}');
+          }
+        } catch (e, stackTrace) {
+          debugPrint('⚠️ [EmployeeAPI] Vehicle details endpoint failed: $e');
+          debugPrint('📋 [EmployeeAPI] Stack trace: $stackTrace');
+        }
+      }
+
+      // 2. محاولة جلب عبر employee_id (GET /api/employees/{employee_id}/vehicle) - هذا مهم جداً للسيارة الحالية
+      if (employeeId != null && employeeId.isNotEmpty) {
+        try {
+          final url = ApiConfig.getEmployeeVehicleUrl(employeeId);
+          debugPrint('🚀 [EmployeeAPI] [2/4] Attempting to fetch employee vehicle from: $url');
+          debugPrint('   📋 Endpoint: GET /api/employees/{employee_id}/vehicle');
+          
+          final response = await http
+              .get(
+                Uri.parse(url),
+                headers: await _getHeaders(includeToken: false), // nuzum.site قد لا يحتاج token
+              )
+              .timeout(timeoutDuration);
+
+          debugPrint('📥 [EmployeeAPI] Employee vehicle response status: ${response.statusCode}');
+          final responseBody = response.body;
+          debugPrint('📥 [EmployeeAPI] Employee vehicle response body: ${responseBody.length > 500 ? responseBody.substring(0, 500) : responseBody}');
+
+          if (response.statusCode == 200) {
+            final data = jsonDecode(responseBody) as Map<String, dynamic>;
+            debugPrint('✅ [EmployeeAPI] Employee vehicle data keys: ${data.keys.toList()}');
+            
+            // معالجة الشكل الجديد من API: {success, employee, vehicle, handover_records, handover_count}
+            if (data.containsKey('success') && data['vehicle'] != null) {
+              try {
+                final vehicleData = data['vehicle'] as Map<String, dynamic>;
+                debugPrint('🚗 [EmployeeAPI] Found new API format with vehicle, employee, and handover_records');
+                debugPrint('   📋 Vehicle data keys: ${vehicleData.keys.toList()}');
+                debugPrint('   📋 Handover records count: ${data['handover_count'] ?? 0}');
+                debugPrint('   🖼️ Registration form image: ${vehicleData['registration_form_image']}');
+                debugPrint('   🖼️ Registration image: ${vehicleData['registration_image']}');
+                final car = Car.fromJson(vehicleData);
+                debugPrint('   ✅ Parsed car - registrationFormImage: ${car.registrationFormImage}');
+                debugPrint('   ✅ Parsed car - registrationImage: ${car.registrationImage}');
+                // إذا كان carId فارغاً أو مطابقاً، نعيد السيارة
+                if (carId.isEmpty || car.carId == carId) {
+                  debugPrint('✅ [EmployeeAPI] Successfully parsed car from new API format: ${car.plateNumber}');
+                  return ApiResponse.success(car, 'تم جلب التفاصيل بنجاح');
+                } else {
+                  debugPrint('⚠️ [EmployeeAPI] Car ID mismatch: expected $carId, got ${car.carId}');
+                }
+              } catch (e, stackTrace) {
+                debugPrint('❌ [EmployeeAPI] Error parsing car from new API format: $e');
+                debugPrint('📋 Stack trace: $stackTrace');
+              }
+            }
+            // إذا كانت الاستجابة تحتوي على vehicle wrapper (الشكل القديم)
+            else if (data['vehicle'] != null) {
+              try {
+                final vehicleData = data['vehicle'] as Map<String, dynamic>;
+                debugPrint('🚗 [EmployeeAPI] Found vehicle wrapper, parsing...');
+                debugPrint('   📋 Vehicle data keys: ${vehicleData.keys.toList()}');
+                final car = Car.fromJson(vehicleData);
+                // إذا كان carId فارغاً أو مطابقاً، نعيد السيارة
+                if (carId.isEmpty || car.carId == carId) {
+                  debugPrint('✅ [EmployeeAPI] Successfully parsed car from vehicle wrapper: ${car.plateNumber}');
+                  return ApiResponse.success(car, 'تم جلب التفاصيل بنجاح');
+                } else {
+                  debugPrint('⚠️ [EmployeeAPI] Car ID mismatch: expected $carId, got ${car.carId}');
+                }
+              } catch (e, stackTrace) {
+                debugPrint('❌ [EmployeeAPI] Error parsing car from vehicle wrapper: $e');
+                debugPrint('📋 Stack trace: $stackTrace');
+              }
+            }
+            // إذا كانت الاستجابة تحتوي على بيانات السيارة مباشرة
+            if (data.containsKey('car_id') || data.containsKey('plate_number') || data.containsKey('vehicle_id') || data.containsKey('id')) {
+              try {
+                final car = Car.fromJson(data);
+                if (carId.isEmpty || car.carId == carId) {
+                  debugPrint('✅ [EmployeeAPI] Successfully parsed car from employee vehicle endpoint: ${car.plateNumber}');
+                  return ApiResponse.success(car, 'تم جلب التفاصيل بنجاح');
+                } else {
+                  debugPrint('⚠️ [EmployeeAPI] Car ID mismatch: expected $carId, got ${car.carId}');
+                }
+              } catch (e) {
+                debugPrint('❌ [EmployeeAPI] Error parsing car data: $e');
+              }
+            }
+            // إذا كانت الاستجابة تحتوي على data wrapper
+            if (data['data'] != null) {
+              try {
+                final car = Car.fromJson(data['data'] as Map<String, dynamic>);
+                if (carId.isEmpty || car.carId == carId) {
+                  debugPrint('✅ [EmployeeAPI] Successfully parsed car from data wrapper: ${car.plateNumber}');
+                  return ApiResponse.success(car, 'تم جلب التفاصيل بنجاح');
+                } else {
+                  debugPrint('⚠️ [EmployeeAPI] Car ID mismatch: expected $carId, got ${car.carId}');
+                }
+              } catch (e) {
+                debugPrint('❌ [EmployeeAPI] Error parsing car from data wrapper: $e');
+              }
+            }
+          } else {
+            debugPrint('⚠️ [EmployeeAPI] Employee vehicle endpoint returned status: ${response.statusCode}');
+          }
+        } catch (e, stackTrace) {
+          debugPrint('⚠️ [EmployeeAPI] Employee vehicle endpoint failed: $e');
+          debugPrint('📋 [EmployeeAPI] Stack trace: $stackTrace');
+        }
+      } else {
+        debugPrint('⚠️ [EmployeeAPI] employeeId not available, skipping employee vehicle endpoint');
+      }
+
+      // 3. محاولة استخدام endpoint القديم
+      try {
+        final body = _getBaseBody(jobNumber: jobNumber, apiKey: apiKey);
+        body['car_id'] = carId;
+
+        final response = await http
+            .post(
+              Uri.parse('${ApiConfig.baseUrl}/api/external/employee-car-details'),
+              headers: await _getHeaders(),
+              body: jsonEncode(body),
+            )
+            .timeout(timeoutDuration);
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body) as Map<String, dynamic>;
+          if (data['success'] == true) {
+            final car = Car.fromJson(data['data'] as Map<String, dynamic>);
+            return ApiResponse.success(
+              car,
+              data['message'] ?? 'تم جلب التفاصيل بنجاح',
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('⚠️ [EmployeeAPI] Old car details endpoint not available');
+      }
+
+      // 4. إذا فشل كل شيء، استخدم complete profile كحل احتياطي
+      final completeResponse = await getCompleteProfile(
+        jobNumber: jobNumber,
+        apiKey: apiKey,
+      );
+
+      if (completeResponse.success && completeResponse.data != null) {
+        final allCars = [
+          if (completeResponse.data!.currentCar != null) completeResponse.data!.currentCar!,
+          ...completeResponse.data!.previousCars,
+        ];
+
+        final car = allCars.firstWhere(
+          (c) => c.carId == carId,
+          orElse: () => throw Exception('Car not found'),
+        );
+
+        return ApiResponse.success(car, 'تم جلب التفاصيل بنجاح');
+      }
+
+      return ApiResponse.error('لم يتم العثور على السيارة', 'Car not found');
+    } catch (e) {
+      debugPrint('❌ [EmployeeAPI] Error getting car details: $e');
+      return ApiResponse.error('حدث خطأ في جلب التفاصيل: $e');
     }
   }
 
@@ -641,6 +885,84 @@ class EmployeeApiService {
           'Network Error',
         );
       }
+      return ApiResponse.error(
+        'حدث خطأ في الاتصال: $e',
+        'Connection Error',
+      );
+    }
+  }
+
+  /// ============================================
+  /// 🚗 جلب تفاصيل السيارة الكاملة مع سجلات التسليم - Get Vehicle Details with Handovers
+  /// ============================================
+  static Future<ApiResponse<VehicleDetailsResponse>> getVehicleDetailsWithHandovers({
+    required String employeeId,
+    String? vehicleId,
+  }) async {
+    try {
+      // محاولة جلب من endpoint الموظف أولاً
+      final url = ApiConfig.getEmployeeVehicleUrl(employeeId);
+      debugPrint('🚀 [EmployeeAPI] Fetching vehicle details with handovers from: $url');
+      
+      final response = await http
+          .get(
+            Uri.parse(url),
+            headers: await _getHeaders(includeToken: false),
+          )
+          .timeout(timeoutDuration);
+
+      debugPrint('📥 [EmployeeAPI] Response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        
+        // التحقق من أن الاستجابة تحتوي على الشكل الجديد
+        if (data.containsKey('success') && data['vehicle'] != null) {
+          try {
+            final vehicleDetails = VehicleDetailsResponse.fromJson(data);
+            debugPrint('✅ [EmployeeAPI] Successfully parsed vehicle details with handovers');
+            debugPrint('   📋 Vehicle: ${vehicleDetails.vehicle?.plateNumber}');
+            debugPrint('   📋 Handover records: ${vehicleDetails.handoverRecords.length}');
+            return ApiResponse.success(vehicleDetails, 'تم جلب التفاصيل بنجاح');
+          } catch (e, stackTrace) {
+            debugPrint('❌ [EmployeeAPI] Error parsing vehicle details response: $e');
+            debugPrint('📋 Stack trace: $stackTrace');
+          }
+        }
+      }
+
+      // إذا فشل، جرب endpoint السيارة مباشرة
+      if (vehicleId != null && vehicleId.isNotEmpty) {
+        try {
+          final vehicleUrl = ApiConfig.getVehicleDetailsUrl(vehicleId);
+          debugPrint('🚀 [EmployeeAPI] Trying vehicle details endpoint: $vehicleUrl');
+          
+          final vehicleResponse = await http
+              .get(
+                Uri.parse(vehicleUrl),
+                headers: await _getHeaders(includeToken: false),
+              )
+              .timeout(timeoutDuration);
+
+          if (vehicleResponse.statusCode == 200) {
+            final vehicleData = jsonDecode(vehicleResponse.body) as Map<String, dynamic>;
+            if (vehicleData.containsKey('success') && vehicleData['vehicle'] != null) {
+              final vehicleDetails = VehicleDetailsResponse.fromJson(vehicleData);
+              return ApiResponse.success(vehicleDetails, 'تم جلب التفاصيل بنجاح');
+            }
+          }
+        } catch (e) {
+          debugPrint('⚠️ [EmployeeAPI] Vehicle details endpoint failed: $e');
+        }
+      }
+
+      return ApiResponse.error(
+        'فشل جلب تفاصيل السيارة',
+        'Failed to fetch vehicle details',
+      );
+    } catch (e, stackTrace) {
+      debugPrint('❌ [EmployeeAPI] Error fetching vehicle details: $e');
+      debugPrint('📋 Stack trace: $stackTrace');
       return ApiResponse.error(
         'حدث خطأ في الاتصال: $e',
         'Connection Error',

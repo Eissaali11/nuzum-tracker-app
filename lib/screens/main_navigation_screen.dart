@@ -1,16 +1,24 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/attendance_model.dart';
 import '../models/car_model.dart';
+import '../models/complete_employee_response.dart';
 import '../models/salary_model.dart';
 import '../services/auth_service.dart';
+import '../services/background_service.dart';
 import '../services/employee_api_service.dart';
+import '../services/language_service.dart';
 import '../services/notifications_api_service.dart';
+import '../utils/api_response.dart';
+import '../utils/app_localizations.dart';
 import '../utils/safe_preferences.dart';
-import 'attendance_list_screen.dart';
 import 'attendance/attendance_check_in_screen.dart';
 import 'attendance/face_enrollment_screen.dart';
+import 'attendance_list_screen.dart';
 import 'cars_list_screen.dart';
+import 'emergency_contacts_screen.dart';
 import 'employee_profile_screen.dart';
 import 'liabilities/liabilities_screen.dart';
 import 'login_screen.dart';
@@ -46,12 +54,30 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   @override
   void initState() {
     super.initState();
+    // تحميل البيانات عند بدء الشاشة
     _loadDataForScreens();
     _loadNotificationsCount();
     // تحديث عداد الإشعارات كل 30 ثانية
     Future.delayed(const Duration(seconds: 30), () {
       if (mounted) _loadNotificationsCount();
     });
+
+    // الاستماع لتغييرات اللغة
+    LanguageService.instance.addListener(_onLanguageChanged);
+  }
+
+  void _onLanguageChanged() {
+    if (mounted) {
+      setState(() {
+        // إعادة بناء الواجهة عند تغيير اللغة
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    LanguageService.instance.removeListener(_onLanguageChanged);
+    super.dispose();
   }
 
   Future<void> _loadNotificationsCount() async {
@@ -77,22 +103,115 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       final apiKey = await SafePreferences.getString('apiKey');
 
       if (jobNumber != null && apiKey != null) {
+        debugPrint('🔄 [MainNav] Loading data for jobNumber: $jobNumber');
         // استخدام الطلب الشامل لجلب جميع البيانات في طلب واحد
-        final completeResponse = await EmployeeApiService.getCompleteProfile(
-          jobNumber: jobNumber,
-          apiKey: apiKey,
-        );
+        final completeResponse =
+            await EmployeeApiService.getCompleteProfile(
+              jobNumber: jobNumber,
+              apiKey: apiKey,
+            ).timeout(
+              const Duration(seconds: 30),
+              onTimeout: () {
+                debugPrint('⏱️ [MainNav] Request timeout after 30 seconds');
+                return ApiResponse<CompleteEmployeeResponse>.error(
+                  AppLocalizations().timeout,
+                  'TIMEOUT',
+                );
+              },
+            );
 
         if (completeResponse.success && completeResponse.data != null) {
           final data = completeResponse.data!;
 
+          // محاولة جلب السيارة الحالية من endpoint الجديد إذا لم تكن موجودة
+          Car? currentCarFromNewEndpoint;
+          if (data.currentCar == null) {
+            try {
+              final employeeId =
+                  data.employee.employeeId ??
+                  data.employee.jobNumber; // استخدام employee_id أو jobNumber
+              debugPrint(
+                '🔍 [MainNav] Trying to fetch current car from new endpoint for employee: $employeeId',
+              );
+
+              final vehicleResponse = await EmployeeApiService.getCarDetails(
+                carId: '', // فارغ لجلب أي سيارة
+                jobNumber: jobNumber,
+                apiKey: apiKey,
+                employeeId: employeeId,
+              );
+
+              if (vehicleResponse.success && vehicleResponse.data != null) {
+                currentCarFromNewEndpoint = vehicleResponse.data;
+                debugPrint(
+                  '✅ [MainNav] Found current car from new endpoint: ${currentCarFromNewEndpoint?.plateNumber ?? "N/A"}',
+                );
+              }
+            } catch (e) {
+              debugPrint(
+                '⚠️ [MainNav] Failed to fetch current car from new endpoint: $e',
+              );
+            }
+          }
+
           setState(() {
             _attendanceList = data.attendance;
-            // دمج السيارة الحالية مع السيارات السابقة
-            _carsList = [
-              if (data.currentCar != null) data.currentCar!,
-              ...data.previousCars,
-            ];
+
+            // دمج جميع السيارات: الحالية + السابقة
+            // نضمن إضافة جميع السيارات بدون تكرار
+            _carsList = [];
+
+            // إنشاء Set لتتبع car_id المضافة لتجنب التكرار
+            final addedCarIds = <String>{};
+
+            // إضافة السيارة الحالية أولاً إذا كانت موجودة
+            final currentCar = data.currentCar ?? currentCarFromNewEndpoint;
+            if (currentCar != null) {
+              debugPrint(
+                '🚗 [MainNav] ✅ FOUND CURRENT CAR: ${currentCar.plateNumber} (ID: ${currentCar.carId}, Status: ${currentCar.status})',
+              );
+              debugPrint(
+                '   📋 Current Car Details: Model=${currentCar.model}, Color=${currentCar.color}',
+              );
+              _carsList.add(currentCar);
+              addedCarIds.add(currentCar.carId);
+            } else {
+              debugPrint('⚠️ [MainNav] ❌ No current car found in API response');
+              debugPrint('   📋 Will check previous_cars for active cars...');
+            }
+
+            // إضافة جميع السيارات السابقة (بما في ذلك السيارات النشطة)
+            debugPrint(
+              '🚗 [MainNav] Previous cars count: ${data.previousCars.length}',
+            );
+            for (var i = 0; i < data.previousCars.length; i++) {
+              final previousCar = data.previousCars[i];
+              final carId = previousCar.carId.isEmpty
+                  ? 'empty_${previousCar.plateNumber}_$i'
+                  : previousCar.carId;
+
+              // التحقق من عدم التكرار بناءً على car_id أو رقم اللوحة
+              if (!addedCarIds.contains(carId)) {
+                debugPrint(
+                  '🚗 [MainNav] ✅ Adding car ${i + 1}/${data.previousCars.length}: ${previousCar.plateNumber} (ID: ${previousCar.carId.isEmpty ? "EMPTY" : previousCar.carId}, Status: ${previousCar.status.displayName}, Model: ${previousCar.model})',
+                );
+                _carsList.add(previousCar);
+                addedCarIds.add(carId);
+              } else {
+                debugPrint(
+                  '⚠️ [MainNav] Skipping duplicate car: ${previousCar.plateNumber} (ID: ${previousCar.carId.isEmpty ? "EMPTY" : previousCar.carId})',
+                );
+              }
+            }
+
+            debugPrint('✅ [MainNav] Total cars in list: ${_carsList.length}');
+            debugPrint('📋 [MainNav] Final cars list:');
+            for (var i = 0; i < _carsList.length; i++) {
+              final car = _carsList[i];
+              debugPrint(
+                '   ${i + 1}. ${car.plateNumber} (${car.status.displayName}) - ID: ${car.carId}',
+              );
+            }
             _salariesList = data.salaries;
             _employeeName = data.employee.name;
             // جلب رابط الصورة الشخصية إذا كانت متوفرة
@@ -104,13 +223,15 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           debugPrint('✅ [MainNav] Data loaded successfully:');
           debugPrint('   - Employee: ${data.employee.name}');
           debugPrint('   - Attendance: ${_attendanceList.length} records');
-          debugPrint('   - Cars: ${_carsList.length} cars');
+          debugPrint(
+            '   - Cars: ${_carsList.length} cars (Current: ${data.currentCar != null ? 1 : 0}, Previous: ${data.previousCars.length})',
+          );
           debugPrint('   - Salaries: ${_salariesList.length} records');
           debugPrint('   - Operations: ${data.operations.length} records');
         } else {
-          final error = completeResponse.error ?? 'فشل جلب البيانات';
+          final error = completeResponse.error ?? AppLocalizations().loadFailed;
           final errorDetails =
-              completeResponse.message ?? 'لا توجد تفاصيل إضافية';
+              completeResponse.message ?? AppLocalizations().noData;
           debugPrint('⚠️ [MainNav] Failed to load data: $error');
           debugPrint('⚠️ [MainNav] Error details: $errorDetails');
           setState(() {
@@ -121,15 +242,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       } else {
         setState(() {
           _isLoading = false;
-          _errorMessage =
-              'الرجاء إدخال الرقم الوظيفي والمفتاح في صفحة الإعدادات';
+          _errorMessage = AppLocalizations().enterJobNumber;
         });
       }
     } catch (e) {
       debugPrint('❌ [MainNav] Error loading data: $e');
       setState(() {
         _isLoading = false;
-        _errorMessage = 'حدث خطأ في الاتصال: $e';
+        _errorMessage = '${AppLocalizations().connectionError}: $e';
       });
     }
   }
@@ -163,13 +283,13 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       return Scaffold(
         key: _scaffoldKey,
         drawer: _buildDrawer(),
-        body: const Center(
+        body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('جاري تحميل البيانات...'),
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              Text(AppLocalizations().loading),
             ],
           ),
         ),
@@ -201,7 +321,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                 ElevatedButton.icon(
                   onPressed: _loadDataForScreens,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('إعادة المحاولة'),
+                  label: Text(AppLocalizations().retry),
                 ),
               ],
             ),
@@ -266,49 +386,49 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                   children: [
                     _buildNavItem(
                       icon: Icons.location_on_rounded,
-                      label: 'التتبع',
+                      label: AppLocalizations().tracking,
                       index: 0,
                       isActive: _currentIndex == 0,
                     ),
                     _buildNavItem(
                       icon: Icons.person_rounded,
-                      label: 'الموظف',
+                      label: AppLocalizations().employee,
                       index: 1,
                       isActive: _currentIndex == 1,
                     ),
                     _buildNavItem(
                       icon: Icons.access_time_rounded,
-                      label: 'الحضور',
+                      label: AppLocalizations().attendance,
                       index: 2,
                       isActive: _currentIndex == 2,
                     ),
                     _buildNavItem(
                       icon: Icons.account_balance_wallet_rounded,
-                      label: 'الرواتب',
+                      label: AppLocalizations().salaries,
                       index: 3,
                       isActive: _currentIndex == 3,
                     ),
                     _buildNavItem(
                       icon: Icons.directions_car_rounded,
-                      label: 'السيارات',
+                      label: AppLocalizations().cars,
                       index: 4,
                       isActive: _currentIndex == 4,
                     ),
                     _buildNavItem(
                       icon: Icons.description_rounded,
-                      label: 'الطلبات',
+                      label: AppLocalizations().requests,
                       index: 5,
                       isActive: _currentIndex == 5,
                     ),
                     _buildNavItem(
                       icon: Icons.account_balance_rounded,
-                      label: 'الالتزامات',
+                      label: AppLocalizations().liabilities,
                       index: 6,
                       isActive: _currentIndex == 6,
                     ),
                     _buildNavItem(
                       icon: Icons.notifications_rounded,
-                      label: 'الإشعارات',
+                      label: AppLocalizations().notifications,
                       index: 7,
                       isActive: _currentIndex == 7,
                       badgeCount: _unreadNotificationsCount > 0
@@ -544,8 +664,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     switch (index) {
       case 0:
         return (
-          title: 'التتبع',
-          subtitle: 'تتبع الموقع والحركة',
+          title: AppLocalizations().tracking,
+          subtitle: AppLocalizations().locationTracking,
           icon: Icons.location_on_rounded,
           gradient: const [
             Color(0xFF06B6D4), // Cyan
@@ -554,8 +674,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         );
       case 1:
         return (
-          title: 'الملف الشخصي',
-          subtitle: 'بيانات الموظف',
+          title: AppLocalizations().profile,
+          subtitle: AppLocalizations().employeeData,
           icon: Icons.person_rounded,
           gradient: const [
             Color(0xFF8B5CF6), // Purple
@@ -564,8 +684,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         );
       case 2:
         return (
-          title: 'الحضور',
-          subtitle: 'سجل الحضور والانصراف',
+          title: AppLocalizations().attendance,
+          subtitle: AppLocalizations().attendanceRecord,
           icon: Icons.access_time_rounded,
           gradient: const [
             Color(0xFF10B981), // Green
@@ -574,8 +694,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         );
       case 3:
         return (
-          title: 'الرواتب',
-          subtitle: 'سجل الرواتب',
+          title: AppLocalizations().salaries,
+          subtitle: AppLocalizations().salaryRecord,
           icon: Icons.account_balance_wallet_rounded,
           gradient: const [
             Color(0xFFF59E0B), // Amber
@@ -584,8 +704,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         );
       case 4:
         return (
-          title: 'السيارات',
-          subtitle: 'السيارات المرتبطة',
+          title: AppLocalizations().cars,
+          subtitle: AppLocalizations().linkedCars,
           icon: Icons.directions_car_rounded,
           gradient: const [
             Color(0xFF3B82F6), // Blue
@@ -594,8 +714,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         );
       case 5:
         return (
-          title: 'الطلبات',
-          subtitle: 'إنشاء ومتابعة الطلبات',
+          title: AppLocalizations().requests,
+          subtitle: AppLocalizations().createRequests,
           icon: Icons.description_rounded,
           gradient: const [
             Color(0xFF06B6D4), // Cyan
@@ -604,8 +724,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         );
       case 6:
         return (
-          title: 'الالتزامات المالية',
-          subtitle: 'الالتزامات والمدفوعات',
+          title: AppLocalizations().liabilities,
+          subtitle: AppLocalizations().viewLiabilities,
           icon: Icons.account_balance_rounded,
           gradient: const [
             Color(0xFFEF4444), // Red
@@ -614,10 +734,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         );
       case 7:
         return (
-          title: 'الإشعارات',
+          title: AppLocalizations().notifications,
           subtitle: _unreadNotificationsCount > 0
-              ? '$_unreadNotificationsCount إشعار غير مقروء'
-              : 'عرض الإشعارات',
+              ? (LanguageService.instance.isArabic
+                    ? '$_unreadNotificationsCount إشعار غير مقروء'
+                    : '$_unreadNotificationsCount unread notifications')
+              : AppLocalizations().viewNotifications,
           icon: Icons.notifications_rounded,
           gradient: const [
             Color(0xFF8B5CF6), // Purple
@@ -745,8 +867,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                       const SizedBox(height: 8),
                       _buildDrawerItem(
                         icon: Icons.description_rounded,
-                        title: 'الطلبات',
-                        subtitle: 'إنشاء ومتابعة الطلبات',
+                        title: AppLocalizations().requests,
+                        subtitle: AppLocalizations().createRequests,
                         onTap: () {
                           Navigator.pop(context);
                           Navigator.push(
@@ -759,8 +881,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                       ),
                       _buildDrawerItem(
                         icon: Icons.account_balance_wallet_rounded,
-                        title: 'الالتزامات المالية',
-                        subtitle: 'عرض الالتزامات والمدفوعات',
+                        title: AppLocalizations().liabilities,
+                        subtitle: AppLocalizations().viewLiabilities,
                         onTap: () {
                           Navigator.pop(context);
                           Navigator.push(
@@ -773,8 +895,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                       ),
                       _buildDrawerItem(
                         icon: Icons.notifications_rounded,
-                        title: 'الإشعارات',
-                        subtitle: 'عرض الإشعارات والتنبيهات',
+                        title: AppLocalizations().notifications,
+                        subtitle: AppLocalizations().viewNotifications,
                         onTap: () {
                           Navigator.pop(context);
                           Navigator.push(
@@ -788,8 +910,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                       const Divider(height: 32),
                       _buildDrawerItem(
                         icon: Icons.location_on_rounded,
-                        title: 'التتبع',
-                        subtitle: 'تتبع الموقع',
+                        title: AppLocalizations().tracking,
+                        subtitle: AppLocalizations().locationTracking,
                         onTap: () {
                           Navigator.pop(context);
                           setState(() {
@@ -799,8 +921,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                       ),
                       _buildDrawerItem(
                         icon: Icons.person_rounded,
-                        title: 'الملف الشخصي',
-                        subtitle: 'بيانات الموظف',
+                        title: AppLocalizations().profile,
+                        subtitle: AppLocalizations().employeeData,
                         onTap: () {
                           Navigator.pop(context);
                           setState(() {
@@ -810,8 +932,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                       ),
                       _buildDrawerItem(
                         icon: Icons.access_time_rounded,
-                        title: 'الحضور',
-                        subtitle: 'سجل الحضور',
+                        title: AppLocalizations().attendance,
+                        subtitle: AppLocalizations().attendanceRecord,
                         onTap: () {
                           Navigator.pop(context);
                           setState(() {
@@ -822,8 +944,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                       const Divider(height: 16),
                       _buildDrawerItem(
                         icon: Icons.face_rounded,
-                        title: 'تسجيل الوجه',
-                        subtitle: 'تسجيل بصمة الوجه للتحضير',
+                        title: AppLocalizations().faceEnrollment,
+                        subtitle: AppLocalizations().faceEnrollmentDesc,
                         color: const Color(0xFF1A237E),
                         onTap: () {
                           Navigator.pop(context);
@@ -837,8 +959,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                       ),
                       _buildDrawerItem(
                         icon: Icons.check_circle_rounded,
-                        title: 'التحضير',
-                        subtitle: 'تسجيل الحضور بتحليل الوجه',
+                        title: AppLocalizations().checkIn,
+                        subtitle: AppLocalizations().checkInDesc,
                         color: const Color(0xFF0D47A1),
                         onTap: () {
                           Navigator.pop(context);
@@ -853,8 +975,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                       const Divider(height: 16),
                       _buildDrawerItem(
                         icon: Icons.account_balance_wallet_rounded,
-                        title: 'الرواتب',
-                        subtitle: 'سجل الرواتب',
+                        title: AppLocalizations().salaries,
+                        subtitle: AppLocalizations().salaryRecord,
                         onTap: () {
                           Navigator.pop(context);
                           setState(() {
@@ -864,8 +986,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                       ),
                       _buildDrawerItem(
                         icon: Icons.directions_car_rounded,
-                        title: 'السيارات',
-                        subtitle: 'السيارات المرتبطة',
+                        title: AppLocalizations().cars,
+                        subtitle: AppLocalizations().linkedCars,
                         onTap: () {
                           Navigator.pop(context);
                           setState(() {
@@ -873,37 +995,57 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                           });
                         },
                       ),
+                      const Divider(height: 16),
+                      _buildDrawerItem(
+                        icon: Icons.emergency_rounded,
+                        title: AppLocalizations().emergencyContacts,
+                        subtitle: AppLocalizations().emergencyContactsSubtitle,
+                        color: const Color(0xFFEF4444),
+                        onTap: () {
+                          Navigator.pop(context);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const EmergencyContactsScreen(),
+                            ),
+                          );
+                        },
+                      ),
                       const Divider(height: 32),
+                      // زر تبديل اللغة
+                      _buildLanguageToggleItem(),
+                      const Divider(height: 16),
                       _buildDrawerItem(
                         icon: Icons.logout_rounded,
-                        title: 'تسجيل الخروج',
-                        subtitle: 'الخروج من الحساب',
+                        title: AppLocalizations().logout,
+                        subtitle: AppLocalizations().logoutDesc,
                         color: Colors.red,
                         onTap: () async {
                           Navigator.pop(context);
                           final confirm = await showDialog<bool>(
                             context: context,
                             builder: (context) => AlertDialog(
-                              title: const Text('تسجيل الخروج'),
-                              content: const Text(
-                                'هل أنت متأكد من تسجيل الخروج؟',
-                              ),
+                              title: Text(AppLocalizations().logout),
+                              content: Text(AppLocalizations().logoutConfirm),
                               actions: [
                                 TextButton(
                                   onPressed: () =>
                                       Navigator.pop(context, false),
-                                  child: const Text('إلغاء'),
+                                  child: Text(AppLocalizations().cancel),
                                 ),
                                 TextButton(
                                   onPressed: () => Navigator.pop(context, true),
-                                  child: const Text('تسجيل الخروج'),
+                                  child: Text(AppLocalizations().logout),
                                 ),
                               ],
                             ),
                           );
 
                           if (confirm == true) {
-                            await AuthService.logout();
+                            // تسجيل خروج صريح - مسح جميع البيانات بما فيها بيانات التتبع
+                            await AuthService.logout(clearTrackingData: true);
+                            // إيقاف خدمة التتبع
+                            await stopLocationTracking();
                             if (mounted) {
                               Navigator.of(context).pushAndRemoveUntil(
                                 MaterialPageRoute(
@@ -923,6 +1065,52 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  /// بناء عنصر تبديل اللغة
+  Widget _buildLanguageToggleItem() {
+    final isArabic = LanguageService.instance.isArabic;
+    final currentLanguage = isArabic ? 'العربية' : 'English';
+
+    return ListTile(
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A237E).withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Icon(
+          Icons.language_rounded,
+          color: Color(0xFF1A237E),
+          size: 24,
+        ),
+      ),
+      title: Text(
+        isArabic ? 'اللغة' : 'Language',
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+      ),
+      subtitle: Text(
+        isArabic
+            ? 'اللغة الحالية: $currentLanguage'
+            : 'Current: $currentLanguage',
+        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+      ),
+      trailing: Switch(
+        value: !isArabic, // true = English, false = Arabic
+        onChanged: (value) async {
+          if (value) {
+            await LanguageService.instance.setEnglish();
+          } else {
+            await LanguageService.instance.setArabic();
+          }
+        },
+        activeThumbColor: const Color(0xFF1A237E),
+      ),
+      onTap: () async {
+        // تبديل اللغة
+        await LanguageService.instance.toggleLanguage();
+      },
     );
   }
 

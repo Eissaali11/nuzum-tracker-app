@@ -4,8 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 // import 'package:workmanager/workmanager.dart';  // معلق مؤقتاً - Foreground Service كافٍ
+import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:background_fetch/background_fetch.dart';
 import 'package:nuzum_tracker/services/location_service.dart';
+import 'package:nuzum_tracker/services/location_service.dart' show LocationApiService;
 import 'package:nuzum_tracker/services/auth_service.dart';
+import 'package:nuzum_tracker/services/background_entry_point.dart' show onStart, onIosBackground;
+import 'package:nuzum_tracker/services/geofence_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 
@@ -20,17 +25,128 @@ const MethodChannel _serviceChannel = MethodChannel('com.nuzum.tracker/service')
 StreamSubscription<dynamic>? _locationEventSubscription;
 
 // -----------------------------------------------------------------------------
-// تهيئة الخدمة - Foreground Service فقط (WorkManager معلق مؤقتاً)
+// تهيئة الخدمة - Flutter Background Service + Background Fetch
 // -----------------------------------------------------------------------------
 Future<void> initializeService() async {
   try {
-    // Foreground Service يعمل بشكل مستقل ويرسل البيانات مباشرة للسيرفر
-    // لا حاجة لـ WorkManager - Foreground Service كافٍ تماماً
-    debugPrint('✅ [Service] Foreground Service ready');
-    debugPrint('ℹ️ [Service] Using Foreground Service only (WorkManager disabled)');
+    // تهيئة Flutter Background Service
+    final service = FlutterBackgroundService();
+    
+    // التحقق من أن الخدمة غير قيد التشغيل بالفعل
+    final isRunning = await service.isRunning();
+    if (!isRunning) {
+      await service.configure(
+        androidConfiguration: AndroidConfiguration(
+          onStart: onStart,
+          autoStart: true, // البدء تلقائياً
+          isForegroundMode: true,
+          notificationChannelId: 'nuzum_tracker_foreground',
+          initialNotificationTitle: 'Nuzum Tracker',
+          initialNotificationContent: 'تتبع الموقع نشط',
+          foregroundServiceNotificationId: 888,
+        ),
+        iosConfiguration: IosConfiguration(
+          autoStart: true, // البدء تلقائياً
+          onForeground: onStart,
+          onBackground: onIosBackground,
+        ),
+      );
+      debugPrint('✅ [Service] Flutter Background Service configured');
+      
+      // بدء الخدمة تلقائياً إذا كان التطبيق مُعدّ
+      final prefs = await SharedPreferences.getInstance();
+      final jobNumber = prefs.getString('jobNumber');
+      final apiKey = prefs.getString('apiKey');
+      
+      if (jobNumber != null && apiKey != null && jobNumber.isNotEmpty && apiKey.isNotEmpty) {
+        await service.startService();
+        debugPrint('✅ [Service] Flutter Background Service auto-started');
+      }
+    } else {
+      debugPrint('ℹ️ [Service] Flutter Background Service already running');
+    }
+
+    // تهيئة Background Fetch (للمهام الدورية)
+    await BackgroundFetch.configure(
+      BackgroundFetchConfig(
+        minimumFetchInterval: 15, // 15 دقيقة كحد أدنى
+        stopOnTerminate: false, // الاستمرار حتى عند إغلاق التطبيق
+        startOnBoot: true, // البدء تلقائياً بعد إعادة التشغيل
+        enableHeadless: true, // العمل بدون واجهة
+        requiresBatteryNotLow: false,
+        requiresCharging: false,
+        requiresStorageNotLow: false,
+        requiresDeviceIdle: false,
+      ),
+      (String taskId) async {
+        // مهمة دورية - إرسال تحديث الموقع
+        debugPrint('🔄 [BackgroundFetch] Task: $taskId');
+        try {
+          await _sendLocationUpdateFromBackgroundTask();
+          BackgroundFetch.finish(taskId);
+        } catch (e) {
+          debugPrint('❌ [BackgroundFetch] Error: $e');
+          BackgroundFetch.finish(taskId);
+        }
+      },
+    ).then((int status) {
+      debugPrint('✅ [BackgroundFetch] Configured: $status');
+    }).catchError((e) {
+      debugPrint('❌ [BackgroundFetch] Configuration error: $e');
+    });
+
+    debugPrint('✅ [Service] All background services initialized');
   } catch (e, stackTrace) {
     debugPrint('❌ [Service] Error initializing service: $e');
     debugPrint('❌ [Service] Stack trace: $stackTrace');
+  }
+}
+
+// الدوال onStart و onIosBackground موجودة في background_entry_point.dart
+
+// -----------------------------------------------------------------------------
+// إرسال تحديث الموقع من Background Fetch Task
+// -----------------------------------------------------------------------------
+Future<void> _sendLocationUpdateFromBackgroundTask() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final jobNumber = prefs.getString('jobNumber');
+    final apiKey = prefs.getString('apiKey');
+
+    if (jobNumber == null || apiKey == null || jobNumber.isEmpty || apiKey.isEmpty) {
+      debugPrint('⚠️ [BackgroundFetch] No jobNumber or apiKey found');
+      return;
+    }
+
+    // الحصول على الموقع الحالي
+    final position = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+      timeLimit: const Duration(seconds: 10),
+    );
+
+    // إرسال الموقع
+    final response = await LocationApiService.sendLocationWithRetry(
+      jobNumber: jobNumber,
+      latitude: position.latitude,
+      longitude: position.longitude,
+      accuracy: position.accuracy,
+      apiKey: apiKey,
+    );
+
+    if (response.success) {
+      debugPrint('✅ [BackgroundFetch] Location sent successfully');
+    } else {
+      debugPrint('❌ [BackgroundFetch] Failed to send location: ${response.error}');
+      // حفظ محلياً
+      await LocationApiService.savePendingLocation(
+        jobNumber: jobNumber,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        accuracy: position.accuracy,
+      );
+    }
+  } catch (e) {
+    debugPrint('❌ [BackgroundFetch] Error: $e');
   }
 }
 
@@ -83,18 +199,47 @@ Future<void> startLocationTracking() async {
     // بدء تتبع الموقع المستمر
     debugPrint("🌍 [Tracking] Starting continuous location tracking...");
 
-    // بدء Foreground Service (يعمل حتى عند إغلاق التطبيق)
+    // بدء Flutter Background Service (يعمل حتى عند إغلاق التطبيق)
+    // هذه الخدمة تستمر في العمل حتى عند إغلاق التطبيق بالكامل
     try {
-      await _startForegroundService();
-      debugPrint('✅ [Tracking] Foreground Service started');
+      final service = FlutterBackgroundService();
+      final isRunning = await service.isRunning();
+      if (!isRunning) {
+        await service.startService();
+        debugPrint('✅ [Tracking] Flutter Background Service started - will continue even if app is closed');
+      } else {
+        debugPrint('ℹ️ [Tracking] Flutter Background Service already running');
+        // التأكد من أن الخدمة نشطة
+        service.invoke("setAsForegroundService");
+      }
     } catch (e) {
-      debugPrint('⚠️ [Tracking] Could not start Foreground Service: $e');
-      // نستمر مع الطريقة العادية كحل احتياطي
+      debugPrint('⚠️ [Tracking] Could not start Flutter Background Service: $e');
+      // محاولة بدء Foreground Service القديم كحل احتياطي
+      try {
+        await _startForegroundService();
+        debugPrint('✅ [Tracking] Fallback: Native Foreground Service started');
+      } catch (e2) {
+        debugPrint('⚠️ [Tracking] Could not start Foreground Service: $e2');
+      }
     }
 
-    // WorkManager معلق مؤقتاً - Foreground Service يعمل بشكل مستقل
-    // Foreground Service يرسل البيانات مباشرة للسيرفر كل 10 ثواني
-    debugPrint('ℹ️ [Tracking] Using Foreground Service only (WorkManager disabled)');
+    // بدء Background Fetch للمهام الدورية
+    try {
+      await BackgroundFetch.start();
+      debugPrint('✅ [Tracking] Background Fetch started');
+    } catch (e) {
+      debugPrint('⚠️ [Tracking] Could not start Background Fetch: $e');
+    }
+
+    debugPrint('ℹ️ [Tracking] Using Flutter Background Service + Background Fetch');
+
+    // بدء مراقبة Geofencing (الدوائر الجغرافية)
+    try {
+      await GeofenceService.instance.startMonitoring();
+      debugPrint('✅ [Tracking] Geofence monitoring started');
+    } catch (e) {
+      debugPrint('⚠️ [Tracking] Could not start geofence monitoring: $e');
+    }
 
     // طلب Wake Lock لمنع النظام من إيقاف التطبيق
     try {
@@ -166,8 +311,9 @@ Future<void> startLocationTracking() async {
           cancelOnError: false,
         );
 
-    // أيضاً نستخدم Timer لإرسال البيانات كل دقيقة (كحل احتياطي للتأكد من الاستمرارية)
-    _locationTimer = Timer.periodic(const Duration(minutes: 1), (timer) async {
+    // أيضاً نستخدم Timer لإرسال البيانات كل 30 ثانية (كحل احتياطي للتأكد من الاستمرارية)
+    // تقليل الفترة لضمان إرسال مستمر حتى عند تصغير النافذة
+    _locationTimer = Timer.periodic(const Duration(seconds: 30), (timer) async {
       // التحقق من أن التتبع لا يزال نشطاً
       if (_positionStreamSubscription == null) {
         debugPrint('⚠️ [Tracking] Stream subscription lost, restarting...');
@@ -175,7 +321,9 @@ Future<void> startLocationTracking() async {
         startLocationTracking();
         return;
       }
+      // إرسال تحديث الموقع حتى لو كان التطبيق في الخلفية
       await _sendLocationUpdate();
+      debugPrint('🔄 [Tracking] Periodic location update sent (background mode)');
     });
 
     // إرسال فوري عند البدء
@@ -187,9 +335,11 @@ Future<void> startLocationTracking() async {
       await _performHealthCheck();
     });
 
-    // بدء Network Check Timer للتحقق من الاتصال وإرسال البيانات المحفوظة كل دقيقتين
-    _networkCheckTimer = Timer.periodic(const Duration(minutes: 2), (timer) async {
+    // بدء Network Check Timer للتحقق من الاتصال وإرسال البيانات المحفوظة كل دقيقة
+    // تقليل الفترة لضمان إرسال أسرع للبيانات المحفوظة
+    _networkCheckTimer = Timer.periodic(const Duration(minutes: 1), (timer) async {
       await _checkNetworkAndSendPending();
+      debugPrint('🔄 [Tracking] Network check and pending locations sent');
     });
 
     // بدء Token Check Timer للتحقق من الـ token وتجديده تلقائياً كل 10 دقائق
@@ -494,15 +644,41 @@ Future<void> _sendLocationUpdate() async {
 // -----------------------------------------------------------------------------
 Future<void> stopLocationTracking() async {
   try {
-    // إيقاف Foreground Service
+    // إيقاف Flutter Background Service
+    try {
+      final service = FlutterBackgroundService();
+      final isRunning = await service.isRunning();
+      if (isRunning) {
+        service.invoke("stopService");
+        debugPrint('✅ [Tracking] Flutter Background Service stop requested');
+      }
+    } catch (e) {
+      debugPrint('⚠️ [Tracking] Could not stop Flutter Background Service: $e');
+    }
+
+    // إيقاف Background Fetch
+    try {
+      await BackgroundFetch.stop();
+      debugPrint('✅ [Tracking] Background Fetch stopped');
+    } catch (e) {
+      debugPrint('⚠️ [Tracking] Could not stop Background Fetch: $e');
+    }
+
+    // إيقاف Foreground Service القديم (إن وجد)
     try {
       await _stopForegroundService();
-      debugPrint('✅ [Tracking] Foreground Service stopped');
+      debugPrint('✅ [Tracking] Native Foreground Service stopped');
     } catch (e) {
       debugPrint('⚠️ [Tracking] Could not stop Foreground Service: $e');
     }
 
-    // WorkManager معلق - لا حاجة لإلغاء التسجيل
+    // إيقاف مراقبة Geofencing
+    try {
+      await GeofenceService.instance.stopMonitoring();
+      debugPrint('✅ [Tracking] Geofence monitoring stopped');
+    } catch (e) {
+      debugPrint('⚠️ [Tracking] Could not stop geofence monitoring: $e');
+    }
 
     _locationTimer?.cancel();
     _locationTimer = null;

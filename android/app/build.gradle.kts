@@ -14,6 +14,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        // تفعيل core library desugaring (مطلوب لـ flutter_local_notifications)
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -46,6 +48,8 @@ dependencies {
    // Google Play Services Location for FusedLocationProviderClient
    // أحدث إصدار يدعم جميع الميزات الحديثة
    implementation("com.google.android.gms:play-services-location:21.3.0")
+   // Core library desugaring (مطلوب لـ flutter_local_notifications)
+   coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
 
 flutter {

@@ -44,8 +44,16 @@ dependencies:
   location: ^6.0.2 
   geolocator: ^12.0.0
   
-  # للمهام الدورية في الخلفية (مثل Life360) - اختياري
+  # للمهام الدورية في الخلفية (مثل Life360)
   # workmanager: ^0.5.2  # معلق مؤقتاً بسبب مشاكل التوافق - Foreground Service كافٍ
+  
+  # خدمة الخلفية المستمرة - تعمل حتى عند إغلاق التطبيق
+  # يدعم Android, iOS, Windows, Linux, macOS
+  flutter_background_service: ^5.0.0
+  
+  # للمهام الدورية في الخلفية (بديل لـ workmanager)
+  # يدعم Android و iOS
+  background_fetch: ^1.1.0
   
   # استخدام geolocator مباشرة مع Timer (يدعم Android 15 بشكل أفضل) 
 
@@ -73,6 +81,9 @@ dependencies:
   # لعرض PDF
   url_launcher: ^6.3.2
   
+  # للمشاركة عبر التطبيقات الخارجية
+  share_plus: ^10.1.2
+  
   # لاختيار الملفات (PDF)
   file_picker: ^8.1.4
   
@@ -89,6 +100,10 @@ dependencies:
   # Device Information for Security
   device_info_plus: ^10.1.0
   package_info_plus: ^8.0.0
+  
+  # لعرض الإشعارات على الشاشة (Overlay Notifications) - استخدام نظام Flutter المدمج
+  # لإشعارات النظام (في شريط الإشعارات)
+  flutter_local_notifications: ^17.2.3
   
   # The following adds the Cupertino Icons font to your application.
   cupertino_icons: ^1.0.8

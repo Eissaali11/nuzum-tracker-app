@@ -42,7 +42,7 @@ class _CreateCarInspectionRequestScreenState
 
   List<Car> _cars = [];
   Car? _selectedCar;
-  String _inspectionType = 'vehicle_receipt'; // القيمة الافتراضية
+  String _inspectionType = 'receipt'; // القيمة الافتراضية (receipt للفحص الدوري)
   int? _requestId;
   
   // إدخال رقم اللوحة يدوياً
@@ -121,10 +121,25 @@ class _CreateCarInspectionRequestScreenState
       if (!mounted) return;
       if (response.success && response.data != null) {
         setState(() {
-          _cars = [
-            if (response.data!.currentCar != null) response.data!.currentCar!,
-            ...response.data!.previousCars,
-          ];
+          // دمج جميع السيارات: الحالية + السابقة
+          // نضمن عدم تكرار السيارة الحالية إذا كانت موجودة في previousCars
+          _cars = [];
+          final addedCarIds = <String>{};
+          
+          // إضافة السيارة الحالية أولاً إذا كانت موجودة
+          if (response.data!.currentCar != null) {
+            _cars.add(response.data!.currentCar!);
+            addedCarIds.add(response.data!.currentCar!.carId);
+          }
+          
+          // إضافة جميع السيارات السابقة (بما في ذلك السيارات النشطة)
+          for (final previousCar in response.data!.previousCars) {
+            // التحقق من عدم التكرار بناءً على car_id
+            if (!addedCarIds.contains(previousCar.carId)) {
+              _cars.add(previousCar);
+              addedCarIds.add(previousCar.carId);
+            }
+          }
           if (_cars.isNotEmpty) _selectedCar = _cars.first;
           _isLoading = false;
         });

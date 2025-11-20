@@ -1,20 +1,58 @@
 import 'package:flutter/material.dart';
 
 import '../models/car_model.dart';
+import '../utils/app_localizations.dart';
 import '../utils/responsive_helper.dart';
 import '../widgets/car_item.dart';
 
 /// ============================================
 /// 🚗 صفحة قائمة السيارات - Cars List Screen
 /// ============================================
-class CarsListScreen extends StatelessWidget {
+class CarsListScreen extends StatefulWidget {
   final List<Car> carsList;
 
   const CarsListScreen({super.key, required this.carsList});
 
+  @override
+  State<CarsListScreen> createState() => _CarsListScreenState();
+}
+
+class _CarsListScreenState extends State<CarsListScreen>
+    with SingleTickerProviderStateMixin {
+  final _localizations = AppLocalizations();
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+    _fadeAnimation = CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeInOut,
+    );
+    _animationController.forward();
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
   List<Car> get _displayList {
     // استخدام البيانات الفعلية من API فقط
-    return carsList;
+    // التأكد من أن جميع السيارات موجودة
+    debugPrint('🚗 [CarsList] Displaying ${widget.carsList.length} cars');
+    for (var i = 0; i < widget.carsList.length; i++) {
+      debugPrint(
+        '   ${i + 1}. ${widget.carsList[i].plateNumber} (${widget.carsList[i].status.displayName}) - ID: ${widget.carsList[i].carId}',
+      );
+    }
+    return widget.carsList;
   }
 
   @override
@@ -31,16 +69,44 @@ class CarsListScreen extends StatelessWidget {
         .length;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
+      backgroundColor: const Color(0xFFF8F9FA),
       body: _displayList.isEmpty
-          ? const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.directions_car, size: 64, color: Colors.grey),
-                  SizedBox(height: 16),
-                  Text('لا توجد سيارات مرتبطة'),
-                ],
+          ? Center(
+              child: FadeTransition(
+                opacity: _fadeAnimation,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.grey.withValues(alpha: 0.2),
+                            blurRadius: 20,
+                            spreadRadius: 5,
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.directions_car_outlined,
+                        size: 64,
+                        color: Color(0xFF6C757D),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      _localizations.noLinkedCars,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        color: Color(0xFF6C757D),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             )
           : LayoutBuilder(
@@ -51,181 +117,207 @@ class CarsListScreen extends StatelessWidget {
                 final borderRadius = ResponsiveHelper.getResponsiveBorderRadius(
                   context,
                 );
-                final titleFontSize = ResponsiveHelper.getResponsiveFontSize(
-                  context,
-                  mobile: 18,
-                  tablet: 20,
-                  desktop: 22,
-                );
 
                 return Column(
                   children: [
-                    // بطاقة الإحصائيات
-                    Container(
-                      margin: margin,
-                      padding: padding,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          begin: Alignment.topRight,
-                          end: Alignment.bottomLeft,
-                          colors: [Color(0xFF1A237E), Color(0xFF0D47A1)],
+                    // بطاقة الإحصائيات المحسّنة
+                    FadeTransition(
+                      opacity: _fadeAnimation,
+                      child: Container(
+                        margin: EdgeInsets.only(
+                          top: margin.top,
+                          left: margin.left,
+                          right: margin.right,
+                          bottom: 16,
                         ),
-                        borderRadius: BorderRadius.circular(borderRadius),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.2),
-                            blurRadius: 20,
-                            offset: const Offset(0, 10),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Color(0xFF667EEA),
+                              Color(0xFF764BA2),
+                            ],
                           ),
-                        ],
-                      ),
-                      child: Column(
-                        children: [
-                          Text(
-                            'إحصائيات السيارات',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: titleFontSize,
-                              fontWeight: FontWeight.bold,
+                          borderRadius: BorderRadius.circular(borderRadius),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF667EEA).withValues(alpha: 0.3),
+                              blurRadius: 25,
+                              offset: const Offset(0, 12),
+                              spreadRadius: 0,
                             ),
-                          ),
-                          SizedBox(
-                            height: ResponsiveHelper.getResponsiveSpacing(
-                              context,
-                              mobile: 20,
-                              tablet: 24,
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.1),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
                             ),
-                          ),
-                          isMobile
-                              ? Column(
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceAround,
-                                      children: [
-                                        Expanded(
-                                          child: _buildStatItem(
-                                            'نشط',
-                                            activeCars.toString(),
-                                            Colors.green,
-                                            Icons.check_circle,
-                                          ),
-                                        ),
-                                        SizedBox(
-                                          width:
-                                              ResponsiveHelper.getResponsiveSpacing(
-                                                context,
-                                                mobile: 8,
-                                              ),
-                                        ),
-                                        Expanded(
-                                          child: _buildStatItem(
-                                            'صيانة',
-                                            maintenanceCars.toString(),
-                                            Colors.orange,
-                                            Icons.build,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    SizedBox(
-                                      height:
-                                          ResponsiveHelper.getResponsiveSpacing(
-                                            context,
-                                            mobile: 12,
-                                          ),
-                                    ),
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceAround,
-                                      children: [
-                                        Expanded(
-                                          child: _buildStatItem(
-                                            'متقاعد',
-                                            retiredCars.toString(),
-                                            Colors.red,
-                                            Icons.cancel,
-                                          ),
-                                        ),
-                                        SizedBox(
-                                          width:
-                                              ResponsiveHelper.getResponsiveSpacing(
-                                                context,
-                                                mobile: 8,
-                                              ),
-                                        ),
-                                        Expanded(
-                                          child: _buildStatItem(
-                                            'إجمالي',
-                                            _displayList.length.toString(),
-                                            Colors.blue,
-                                            Icons.directions_car,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                )
-                              : Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceAround,
-                                  children: [
-                                    Expanded(
-                                      child: _buildStatItem(
-                                        'نشط',
-                                        activeCars.toString(),
-                                        Colors.green,
-                                        Icons.check_circle,
-                                      ),
-                                    ),
-                                    SizedBox(
-                                      width:
-                                          ResponsiveHelper.getResponsiveSpacing(
-                                            context,
-                                            mobile: 8,
-                                          ),
-                                    ),
-                                    Expanded(
-                                      child: _buildStatItem(
-                                        'صيانة',
-                                        maintenanceCars.toString(),
-                                        Colors.orange,
-                                        Icons.build,
-                                      ),
-                                    ),
-                                    SizedBox(
-                                      width:
-                                          ResponsiveHelper.getResponsiveSpacing(
-                                            context,
-                                            mobile: 8,
-                                          ),
-                                    ),
-                                    Expanded(
-                                      child: _buildStatItem(
-                                        'متقاعد',
-                                        retiredCars.toString(),
-                                        Colors.red,
-                                        Icons.cancel,
-                                      ),
-                                    ),
-                                    SizedBox(
-                                      width:
-                                          ResponsiveHelper.getResponsiveSpacing(
-                                            context,
-                                            mobile: 8,
-                                          ),
-                                    ),
-                                    Expanded(
-                                      child: _buildStatItem(
-                                        'إجمالي',
-                                        _displayList.length.toString(),
-                                        Colors.blue,
-                                        Icons.directions_car,
-                                      ),
-                                    ),
-                                  ],
+                          ],
+                        ),
+                        child: Stack(
+                          children: [
+                            // خلفية ديكورية
+                            Positioned(
+                              top: -50,
+                              right: -50,
+                              child: Container(
+                                width: 200,
+                                height: 200,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.white.withValues(alpha: 0.1),
                                 ),
-                        ],
+                              ),
+                            ),
+                            Positioned(
+                              bottom: -30,
+                              left: -30,
+                              child: Container(
+                                width: 150,
+                                height: 150,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.white.withValues(alpha: 0.08),
+                                ),
+                              ),
+                            ),
+                            // المحتوى
+                            Padding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isMobile ? 16 : 20,
+                                vertical: isMobile ? 12 : 16,
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  // العنوان
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(6),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(alpha: 0.2),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: const Icon(
+                                          Icons.analytics_outlined,
+                                          color: Colors.white,
+                                          size: 18,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        _localizations.carStatistics,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                          letterSpacing: 0.3,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  // الإحصائيات
+                                  isMobile
+                                      ? Column(
+                                          children: [
+                                            Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.spaceEvenly,
+                                              children: [
+                                                Expanded(
+                                                  child: _buildStatItem(
+                                                    _localizations.activeCars,
+                                                    activeCars.toString(),
+                                                    const Color(0xFF10B981),
+                                                    Icons.check_circle_rounded,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 12),
+                                                Expanded(
+                                                  child: _buildStatItem(
+                                                    _localizations.maintenanceCars,
+                                                    maintenanceCars.toString(),
+                                                    const Color(0xFFF59E0B),
+                                                    Icons.build_rounded,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 16),
+                                            Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.spaceEvenly,
+                                              children: [
+                                                Expanded(
+                                                  child: _buildStatItem(
+                                                    _localizations.retiredCars,
+                                                    retiredCars.toString(),
+                                                    const Color(0xFFEF4444),
+                                                    Icons.cancel_rounded,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 12),
+                                                Expanded(
+                                                  child: _buildStatItem(
+                                                    _localizations.total,
+                                                    _displayList.length.toString(),
+                                                    const Color(0xFF3B82F6),
+                                                    Icons.directions_car_rounded,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        )
+                                      : Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceEvenly,
+                                          children: [
+                                            Expanded(
+                                              child: _buildStatItem(
+                                                _localizations.activeCars,
+                                                activeCars.toString(),
+                                                const Color(0xFF10B981),
+                                                Icons.check_circle_rounded,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: _buildStatItem(
+                                                _localizations.maintenanceCars,
+                                                maintenanceCars.toString(),
+                                                const Color(0xFFF59E0B),
+                                                Icons.build_rounded,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: _buildStatItem(
+                                                _localizations.retiredCars,
+                                                retiredCars.toString(),
+                                                const Color(0xFFEF4444),
+                                                Icons.cancel_rounded,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: _buildStatItem(
+                                                _localizations.total,
+                                                _displayList.length.toString(),
+                                                const Color(0xFF3B82F6),
+                                                Icons.directions_car_rounded,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                     // قائمة السيارات
@@ -234,14 +326,28 @@ class CarsListScreen extends StatelessWidget {
                         padding: EdgeInsets.symmetric(horizontal: padding.left),
                         itemCount: _displayList.length,
                         itemBuilder: (context, index) {
-                          return Padding(
-                            padding: EdgeInsets.only(
-                              bottom: ResponsiveHelper.getResponsiveSpacing(
-                                context,
-                                mobile: 12,
+                          return TweenAnimationBuilder<double>(
+                            tween: Tween(begin: 0.0, end: 1.0),
+                            duration: Duration(milliseconds: 300 + (index * 100)),
+                            curve: Curves.easeOut,
+                            builder: (context, value, child) {
+                              return Transform.translate(
+                                offset: Offset(0, 20 * (1 - value)),
+                                child: Opacity(
+                                  opacity: value,
+                                  child: child,
+                                ),
+                              );
+                            },
+                            child: Padding(
+                              padding: EdgeInsets.only(
+                                bottom: ResponsiveHelper.getResponsiveSpacing(
+                                  context,
+                                  mobile: 16,
+                                ),
                               ),
+                              child: CarItem(car: _displayList[index]),
                             ),
-                            child: CarItem(car: _displayList[index]),
                           );
                         },
                       ),
@@ -259,32 +365,59 @@ class CarsListScreen extends StatelessWidget {
     Color color,
     IconData icon,
   ) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.2),
-            shape: BoxShape.circle,
+    final isMobile = ResponsiveHelper.isMobile(context);
+    return Container(
+      padding: EdgeInsets.symmetric(
+        vertical: isMobile ? 10 : 12,
+        horizontal: isMobile ? 8 : 10,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: EdgeInsets.all(isMobile ? 8 : 10),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.2),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              color: Colors.white,
+              size: isMobile ? 18 : 20,
+            ),
           ),
-          child: Icon(icon, color: color, size: 28),
-        ),
-        const SizedBox(height: 10),
-        Text(
-          value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: isMobile ? 20 : 24,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.3,
+            ),
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: const TextStyle(color: Colors.white70, fontSize: 13),
-        ),
-      ],
+          const SizedBox(height: 4),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.9),
+              fontSize: isMobile ? 11 : 12,
+              fontWeight: FontWeight.w500,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
     );
   }
 }
