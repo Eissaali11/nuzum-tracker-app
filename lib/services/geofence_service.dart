@@ -39,48 +39,61 @@ class GeofenceService {
   static Future<void> initializeNotifications() async {
     if (_notificationsInitialized) return;
     
-    _notifications = FlutterLocalNotificationsPlugin();
-    
-    // إعدادات Android - استخدام أيقونة التطبيق
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    
-    // إعدادات iOS
-    const iosSettings = DarwinInitializationSettings(
-      requestAlertPermission: true,
-      requestBadgePermission: true,
-      requestSoundPermission: true,
-    );
-    
-    const initSettings = InitializationSettings(
-      android: androidSettings,
-      iOS: iosSettings,
-    );
-    
-    await _notifications!.initialize(
-      initSettings,
-      onDidReceiveNotificationResponse: (details) {
-        debugPrint('📱 [Geofence] Notification tapped: ${details.payload}');
-        // يمكن فتح التطبيق أو صفحة معينة عند الضغط على الإشعار
-      },
-    );
-    
-    // إنشاء قناة إشعارات لـ Android
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      await _notifications!.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>()?.createNotificationChannel(
-        const AndroidNotificationChannel(
-          'geofence_notifications',
-          'إشعارات الدوائر الجغرافية',
-          description: 'إشعارات عند الوصول إلى الدوائر الجغرافية',
-          importance: Importance.high,
-          playSound: true,
-          enableVibration: true,
-        ),
+    try {
+      _notifications = FlutterLocalNotificationsPlugin();
+      
+      // إعدادات Android - استخدام أيقونة التطبيق
+      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+      
+      // إعدادات iOS
+      const iosSettings = DarwinInitializationSettings(
+        requestAlertPermission: true,
+        requestBadgePermission: true,
+        requestSoundPermission: true,
       );
+      
+      const initSettings = InitializationSettings(
+        android: androidSettings,
+        iOS: iosSettings,
+      );
+      
+      await _notifications!.initialize(
+        initSettings,
+        onDidReceiveNotificationResponse: (details) {
+          debugPrint('📱 [Geofence] Notification tapped: ${details.payload}');
+          // يمكن فتح التطبيق أو صفحة معينة عند الضغط على الإشعار
+        },
+      );
+      
+      // إنشاء قناة إشعارات لـ Android
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        try {
+          await _notifications!.resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()?.createNotificationChannel(
+            const AndroidNotificationChannel(
+              'geofence_notifications',
+              'إشعارات الدوائر الجغرافية',
+              description: 'إشعارات عند الوصول إلى الدوائر الجغرافية',
+              importance: Importance.high,
+              playSound: true,
+              enableVibration: true,
+            ),
+          );
+        } catch (e) {
+          debugPrint('⚠️ [Geofence] Could not create notification channel: $e');
+          // نستمر حتى لو فشل إنشاء القناة
+        }
+      }
+      
+      _notificationsInitialized = true;
+      debugPrint('✅ [Geofence] Notifications initialized');
+    } catch (e, stackTrace) {
+      debugPrint('❌ [Geofence] Error initializing notifications: $e');
+      debugPrint('❌ [Geofence] Stack trace: $stackTrace');
+      // نستمر حتى لو فشلت التهيئة - لا نريد إيقاف التطبيق
+      _notificationsInitialized = false;
+      rethrow; // نعيد الخطأ للتعامل معه في main.dart
     }
-    
-    _notificationsInitialized = true;
-    debugPrint('✅ [Geofence] Notifications initialized');
   }
   
   /// تعيين Navigator Key

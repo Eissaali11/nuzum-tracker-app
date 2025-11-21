@@ -1,4 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+
 import '../models/employee_model.dart';
 import 'beautiful_card.dart';
 
@@ -40,17 +46,37 @@ class EmployeePhotosCard extends StatelessWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
+                    const SizedBox(width: 8),
+                    // زر المشاركة - تصميم واضح
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: IconButton(
+                        icon: const Icon(Icons.share_rounded, color: Colors.white),
+                        tooltip: 'مشاركة الصورة',
+                        onPressed: () => _shareImage(context, imageUrl, title),
+                        padding: const EdgeInsets.all(8),
+                        constraints: const BoxConstraints(),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
                     IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white),
+                      icon: const Icon(Icons.close_rounded, color: Colors.white),
+                      tooltip: 'إغلاق',
                       onPressed: () => Navigator.of(context).pop(),
+                      padding: const EdgeInsets.all(8),
                     ),
                   ],
                 ),
@@ -73,6 +99,85 @@ class EmployeePhotosCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// مشاركة الصورة
+  Future<void> _shareImage(
+    BuildContext context,
+    String imageUrl,
+    String title,
+  ) async {
+    try {
+      // إغلاق dialog أولاً إذا كان مفتوحاً
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+        // انتظار قليل لضمان إغلاق dialog
+        await Future.delayed(const Duration(milliseconds: 200));
+      }
+
+      // الحصول على context جديد بعد إغلاق dialog
+      final scaffoldMessenger = ScaffoldMessenger.of(context);
+      
+      // إظهار مؤشر التحميل
+      scaffoldMessenger.showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              ),
+              SizedBox(width: 12),
+              Text('جاري تحميل الصورة...'),
+            ],
+          ),
+          duration: Duration(seconds: 2),
+        ),
+      );
+
+      // تحميل الصورة من الرابط
+      final response = await http.get(Uri.parse(imageUrl));
+      if (response.statusCode != 200) {
+        throw Exception('فشل تحميل الصورة');
+      }
+
+      // حفظ الصورة مؤقتاً
+      final tempDir = await getTemporaryDirectory();
+      final fileName = '${title.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_')}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final file = File('${tempDir.path}/$fileName');
+      await file.writeAsBytes(response.bodyBytes);
+
+      // مشاركة الصورة
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: title,
+        subject: title,
+      );
+
+      // رسالة نجاح
+      scaffoldMessenger.showSnackBar(
+        SnackBar(
+          content: Text('✅ تم مشاركة $title بنجاح'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      debugPrint('❌ [Share] Error sharing image: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ خطأ في مشاركة الصورة: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildPlaceholder(IconData icon, String title) {
@@ -205,6 +310,43 @@ class EmployeePhotosCard extends StatelessWidget {
                                         Colors.transparent,
                                         Colors.black.withValues(alpha: 0.4),
                                       ],
+                                    ),
+                                  ),
+                                ),
+                                // زر المشاركة في الزاوية العلوية
+                                Positioned(
+                                  top: 12,
+                                  left: 12,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF1A237E),
+                                      borderRadius: BorderRadius.circular(8),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(alpha: 0.3),
+                                          blurRadius: 4,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        onTap: () => _shareImage(
+                                          context,
+                                          photo['url'] as String,
+                                          photo['title'] as String,
+                                        ),
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: const Padding(
+                                          padding: EdgeInsets.all(10),
+                                          child: Icon(
+                                            Icons.share_rounded,
+                                            color: Colors.white,
+                                            size: 20,
+                                          ),
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ),

@@ -63,58 +63,82 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _navigateToNextScreen() async {
-    await Future.delayed(const Duration(seconds: 3));
+    // تقليل وقت الانتظار إلى ثانيتين
+    await Future.delayed(const Duration(seconds: 2));
 
-    if (!mounted) return;
-
-    final bool disclaimerAccepted =
-        await SafePreferences.getBool('disclaimerAccepted') ?? false;
-    
-    // التحقق من حالة تسجيل الدخول - يعتمد على بيانات المستخدم (jobNumber, nationalId)
-    // هذا يضمن بقاء المستخدم مسجل دخول بعد أول تسجيل دخول
-    final bool isLoggedIn = await AuthService.isLoggedIn();
-    final String? jobNumber = await SafePreferences.getString('jobNumber');
-    final String? nationalId = await SafePreferences.getString('nationalId');
-
-    Widget nextScreen;
-    if (!disclaimerAccepted) {
-      nextScreen = const DisclaimerScreen();
-    } else if (isLoggedIn && jobNumber != null && nationalId != null) {
-      // المستخدم مسجل دخول - بياناته موجودة (Token يتم تجديده تلقائياً في الخلفية)
-      // لا حاجة لفحص Token - isLoggedIn() يتعامل مع ذلك
-      nextScreen = const MainNavigationScreen();
-      debugPrint('✅ [Splash] User is logged in, proceeding to main screen');
-    } else {
-      // المستخدم غير مسجل دخول - لا توجد بيانات مستخدم
-      nextScreen = const LoginScreen();
-      debugPrint('ℹ️ [Splash] User not logged in, proceeding to login screen');
+    if (!mounted) {
+      debugPrint('⚠️ [Splash] Widget not mounted, skipping navigation');
+      return;
     }
 
-    if (mounted) {
+    try {
+      // جلب البيانات بشكل متوازي لتسريع العملية
+      final results = await Future.wait([
+        SafePreferences.getBool('disclaimerAccepted'),
+        SafePreferences.getString('jobNumber'),
+        SafePreferences.getString('nationalId'),
+      ], eagerError: false);
+
+      final bool disclaimerAccepted = (results[0] as bool?) ?? false;
+      final String? jobNumber = results[1] as String?;
+      final String? nationalId = results[2] as String?;
+
+      // التحقق من حالة تسجيل الدخول مع timeout أقصر
+      bool isLoggedIn = false;
+      if (jobNumber != null && nationalId != null) {
+        try {
+          isLoggedIn = await AuthService.isLoggedIn()
+              .timeout(
+            const Duration(seconds: 3), // تقليل timeout إلى 3 ثواني
+            onTimeout: () {
+              debugPrint('⚠️ [Splash] isLoggedIn timeout, defaulting to false');
+              return false;
+            },
+          );
+        } catch (e) {
+          debugPrint('⚠️ [Splash] Error checking login status: $e');
+          isLoggedIn = false;
+        }
+      }
+
+      Widget nextScreen;
+      if (!disclaimerAccepted) {
+        nextScreen = const DisclaimerScreen();
+        debugPrint('ℹ️ [Splash] Disclaimer not accepted, proceeding to disclaimer screen');
+      } else if (isLoggedIn && jobNumber != null && nationalId != null) {
+        nextScreen = const MainNavigationScreen();
+        debugPrint('✅ [Splash] User is logged in, proceeding to main screen');
+      } else {
+        nextScreen = const LoginScreen();
+        debugPrint('ℹ️ [Splash] User not logged in, proceeding to login screen');
+      }
+
+      if (!mounted) {
+        debugPrint('⚠️ [Splash] Widget unmounted before navigation');
+        return;
+      }
+
+      // استخدام MaterialPageRoute بدلاً من PageRouteBuilder للبساطة والسرعة
       Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          pageBuilder: (context, animation, secondaryAnimation) => nextScreen,
-          transitionDuration: const Duration(milliseconds: 800),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            return FadeTransition(
-              opacity: animation,
-              child: SlideTransition(
-                position:
-                    Tween<Offset>(
-                      begin: const Offset(0.0, 0.1),
-                      end: Offset.zero,
-                    ).animate(
-                      CurvedAnimation(
-                        parent: animation,
-                        curve: Curves.easeOutCubic,
-                      ),
-                    ),
-                child: child,
-              ),
-            );
-          },
-        ),
+        MaterialPageRoute(builder: (context) => nextScreen),
       );
+      
+      debugPrint('✅ [Splash] Navigation completed successfully');
+    } catch (e, stackTrace) {
+      debugPrint('❌ [Splash] Error in navigation: $e');
+      debugPrint('❌ [Splash] Stack trace: $stackTrace');
+      
+      // في حالة الخطأ، ننتقل إلى شاشة تسجيل الدخول
+      if (mounted) {
+        try {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => const LoginScreen()),
+          );
+          debugPrint('✅ [Splash] Fallback navigation to login screen completed');
+        } catch (navError) {
+          debugPrint('❌ [Splash] Critical: Navigation failed completely: $navError');
+        }
+      }
     }
   }
 

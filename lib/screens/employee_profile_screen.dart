@@ -3,6 +3,8 @@ import 'package:intl/intl.dart';
 
 import '../models/attendance_model.dart';
 import '../models/car_model.dart';
+import '../models/complete_employee_response.dart';
+import '../models/device_binding_model.dart';
 import '../models/employee_model.dart';
 import '../models/operation_model.dart';
 import '../models/salary_model.dart';
@@ -40,6 +42,7 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
   List<Car> _carsList = [];
   List<Salary> _salariesList = [];
   List<Operation> _operationsList = [];
+  DeviceBinding? _deviceBinding;
 
   bool _isLoading = true;
   String? _error;
@@ -86,7 +89,7 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
 
       // تسجيل خروج صريح - مسح جميع البيانات بما فيها بيانات التتبع
       await AuthService.logout(clearTrackingData: true);
-      
+
       // حذف بيانات إضافية
       await SafePreferences.setBool('disclaimerAccepted', false);
 
@@ -144,20 +147,55 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
 
       final data = completeResponse.data!;
 
+      // محاولة استخراج معلومات الجهاز والـ SIM من الاستجابة الأصلية أولاً
+      DeviceBinding? deviceBinding;
+
+      // محاولة جلب البيانات من endpoint منفصل
+      try {
+        final bindingResponse = await EmployeeApiService.getDeviceBinding(
+          jobNumber: jobNumber,
+          apiKey: apiKey,
+          bindingId: 1, // رقم الربط 1
+        );
+        if (bindingResponse.success && bindingResponse.data != null) {
+          deviceBinding = bindingResponse.data;
+          debugPrint(
+            '✅ [EmployeeProfile] Device binding loaded successfully from API',
+          );
+        } else {
+          debugPrint(
+            '⚠️ [EmployeeProfile] Device binding API returned: ${bindingResponse.error ?? bindingResponse.message}',
+          );
+          // محاولة استخراج البيانات من الاستجابة الأصلية
+          deviceBinding = _extractDeviceBindingFromResponse(data);
+        }
+      } catch (e) {
+        debugPrint(
+          '❌ [EmployeeProfile] Error loading device binding from API: $e',
+        );
+        // محاولة استخراج البيانات من الاستجابة الأصلية كبديل
+        deviceBinding = _extractDeviceBindingFromResponse(data);
+      }
+
+      if (deviceBinding == null) {
+        debugPrint('⚠️ [EmployeeProfile] No device binding data found');
+      }
+
       setState(() {
         _employee = data.employee;
         _attendanceList = data.attendance;
+        _deviceBinding = deviceBinding;
         // دمج جميع السيارات: الحالية + السابقة
         // نضمن عدم تكرار السيارة الحالية إذا كانت موجودة في previousCars
         _carsList = [];
         final addedCarIds = <String>{};
-        
+
         // إضافة السيارة الحالية أولاً إذا كانت موجودة
         if (data.currentCar != null) {
           _carsList.add(data.currentCar!);
           addedCarIds.add(data.currentCar!.carId);
         }
-        
+
         // إضافة جميع السيارات السابقة (بما في ذلك السيارات النشطة)
         for (final previousCar in data.previousCars) {
           // التحقق من عدم التكرار بناءً على car_id
@@ -166,7 +204,7 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
             addedCarIds.add(previousCar.carId);
           }
         }
-        
+
         _salariesList = data.salaries;
         _operationsList = data.operations;
         _isLoading = false;
@@ -385,6 +423,10 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
             ),
             const SizedBox(height: 16),
 
+            // بطاقة معلومات الجهاز والـ SIM
+            _buildDeviceBindingCard(),
+            const SizedBox(height: 16),
+
             // بطاقة الإحصائيات (قابلة للتمرير)
             _buildStatisticsGrid(),
             const SizedBox(height: 16),
@@ -408,7 +450,9 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
               child: _attendanceList.isEmpty
                   ? Padding(
                       padding: const EdgeInsets.symmetric(vertical: 20.0),
-                      child: Center(child: Text(AppLocalizations().noAttendanceData)),
+                      child: Center(
+                        child: Text(AppLocalizations().noAttendanceData),
+                      ),
                     )
                   : Column(
                       mainAxisSize: MainAxisSize.min,
@@ -448,7 +492,9 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
               child: _operationsList.isEmpty
                   ? Padding(
                       padding: const EdgeInsets.symmetric(vertical: 20.0),
-                      child: Center(child: Text(AppLocalizations().noOperations)),
+                      child: Center(
+                        child: Text(AppLocalizations().noOperations),
+                      ),
                     )
                   : Column(
                       mainAxisSize: MainAxisSize.min,
@@ -1017,7 +1063,10 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
   /// 💰 بطاقة راتب عصرية
   /// ============================================
   Widget _buildModernSalaryCard(Salary salary) {
-    final dateFormat = DateFormat('yyyy-MM-dd', LanguageService.instance.isArabic ? 'ar' : 'en');
+    final dateFormat = DateFormat(
+      'yyyy-MM-dd',
+      LanguageService.instance.isArabic ? 'ar' : 'en',
+    );
     Color statusColor;
     IconData statusIcon;
     String statusText;
@@ -1215,6 +1264,296 @@ class _EmployeeProfileScreenState extends State<EmployeeProfileScreen> {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  /// ============================================
+  /// 📱 بطاقة معلومات الجهاز والـ SIM - Device Binding Card
+  /// ============================================
+  Widget _buildDeviceBindingCard() {
+    // إذا لم تكن البيانات متوفرة، نعرض رسالة
+    if (_deviceBinding == null) {
+      return BeautifulCard(
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF1A237E), Color(0xFF3949AB)],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.phone_android_rounded,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  'معلومات الجهاز والـ SIM',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1A237E),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Colors.orange.withValues(alpha: 0.3),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline_rounded,
+                    color: Colors.orange[700],
+                    size: 24,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'معلومات الجهاز والـ SIM غير متوفرة حالياً',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.orange[900],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final binding = _deviceBinding!;
+    final dateFormat = DateFormat(
+      'yyyy-MM-dd',
+      LanguageService.instance.isArabic ? 'ar' : 'en',
+    );
+
+    return BeautifulCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF1A237E), Color(0xFF3949AB)],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.phone_android_rounded,
+                  color: Colors.white,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'معلومات الجهاز والـ SIM',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1A237E),
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: binding.isActive
+                      ? Colors.green.withValues(alpha: 0.1)
+                      : Colors.grey.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: binding.isActive ? Colors.green : Colors.grey,
+                    width: 1.5,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: binding.isActive ? Colors.green : Colors.grey,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      binding.isActive ? 'نشط' : 'غير نشط',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: binding.isActive ? Colors.green : Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // معلومات الجهاز
+          if (binding.deviceModel != null || binding.deviceBrand != null) ...[
+            _buildInfoRow(
+              icon: Icons.smartphone_rounded,
+              label: 'الجهاز',
+              value: binding.deviceBrand != null && binding.deviceModel != null
+                  ? '${binding.deviceBrand} ${binding.deviceModel}'
+                  : binding.deviceModel ?? binding.deviceBrand ?? 'غير محدد',
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // رقم الجهاز
+          if (binding.deviceId != null) ...[
+            _buildInfoRow(
+              icon: Icons.fingerprint_rounded,
+              label: 'رقم الجهاز',
+              value: binding.deviceId!,
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // معلومات الـ SIM
+          if (binding.simSerialNumber != null) ...[
+            _buildInfoRow(
+              icon: Icons.sim_card_rounded,
+              label: 'رقم الـ SIM',
+              value: binding.simSerialNumber!,
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // مشغل الـ SIM
+          if (binding.simOperator != null) ...[
+            _buildInfoRow(
+              icon: Icons.network_cell_rounded,
+              label: 'مشغل الشبكة',
+              value: binding.simOperator!,
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // رقم الهاتف
+          if (binding.phoneNumber != null) ...[
+            _buildInfoRow(
+              icon: Icons.phone_rounded,
+              label: 'رقم الهاتف',
+              value: binding.phoneNumber!,
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // تاريخ الربط
+          if (binding.bindingDate != null) ...[
+            _buildInfoRow(
+              icon: Icons.calendar_today_rounded,
+              label: 'تاريخ الربط',
+              value: dateFormat.format(binding.bindingDate!),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// استخراج معلومات الجهاز والـ SIM من الاستجابة الأصلية
+  DeviceBinding? _extractDeviceBindingFromResponse(
+    CompleteEmployeeResponse data,
+  ) {
+    try {
+      // محاولة استخراج البيانات من employee إذا كانت موجودة
+      // هذا يعتمد على هيكل API الفعلي
+      // يمكن إضافة منطق استخراج هنا إذا كانت البيانات موجودة في employee
+
+      // مثال: إذا كانت البيانات موجودة في employee.deviceBinding أو employee.device_and_sim
+      // return DeviceBinding.fromJson(employee.deviceBinding);
+
+      return null;
+    } catch (e) {
+      debugPrint('❌ [EmployeeProfile] Error extracting device binding: $e');
+      return null;
+    }
+  }
+
+  Widget _buildInfoRow({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A237E).withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0xFF1A237E).withValues(alpha: 0.1),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A237E).withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: const Color(0xFF1A237E), size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1A237E),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

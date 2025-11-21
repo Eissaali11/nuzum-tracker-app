@@ -54,9 +54,13 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   @override
   void initState() {
     super.initState();
-    // تحميل البيانات عند بدء الشاشة
+    // تحميل البيانات عند بدء الشاشة (في الخلفية)
+    // لا نمنع عرض الشاشة حتى لو فشل تحميل البيانات
     _loadDataForScreens();
+    
+    // تحميل عداد الإشعارات في الخلفية (لا نمنع عرض الشاشة)
     _loadNotificationsCount();
+    
     // تحديث عداد الإشعارات كل 30 ثانية
     Future.delayed(const Duration(seconds: 30), () {
       if (mounted) _loadNotificationsCount();
@@ -64,6 +68,17 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
     // الاستماع لتغييرات اللغة
     LanguageService.instance.addListener(_onLanguageChanged);
+    
+    // إضافة timeout للتحميل - بعد 3 ثواني، نعرض الشاشة حتى لو لم تكتمل البيانات
+    Timer(const Duration(seconds: 3), () {
+      if (mounted && _isLoading) {
+        debugPrint('⏱️ [MainNav] Loading timeout (3s), showing screen anyway');
+        setState(() {
+          _isLoading = false;
+          _errorMessage = null;
+        });
+      }
+    });
   }
 
   void _onLanguageChanged() {
@@ -94,8 +109,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 
   Future<void> _loadDataForScreens() async {
+    if (!mounted) return;
+    
     setState(() {
       _isLoading = true;
+      _errorMessage = null;
     });
 
     try {
@@ -105,14 +123,15 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       if (jobNumber != null && apiKey != null) {
         debugPrint('🔄 [MainNav] Loading data for jobNumber: $jobNumber');
         // استخدام الطلب الشامل لجلب جميع البيانات في طلب واحد
+        // تقليل timeout إلى 15 ثانية بدلاً من 30
         final completeResponse =
             await EmployeeApiService.getCompleteProfile(
               jobNumber: jobNumber,
               apiKey: apiKey,
             ).timeout(
-              const Duration(seconds: 30),
+              const Duration(seconds: 15),
               onTimeout: () {
-                debugPrint('⏱️ [MainNav] Request timeout after 30 seconds');
+                debugPrint('⏱️ [MainNav] Request timeout after 15 seconds');
                 return ApiResponse<CompleteEmployeeResponse>.error(
                   AppLocalizations().timeout,
                   'TIMEOUT',
@@ -234,23 +253,37 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               completeResponse.message ?? AppLocalizations().noData;
           debugPrint('⚠️ [MainNav] Failed to load data: $error');
           debugPrint('⚠️ [MainNav] Error details: $errorDetails');
-          setState(() {
-            _isLoading = false;
-            _errorMessage = error;
-          });
+          
+          // حتى لو فشل تحميل البيانات، نعرض الشاشة مع بيانات فارغة
+          // هذا يسمح للمستخدم بالوصول إلى التطبيق
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+              _errorMessage = null; // إخفاء رسالة الخطأ للسماح بالوصول للتطبيق
+              // الاحتفاظ بالبيانات الفارغة للسماح بالوصول للتطبيق
+            });
+          }
         }
       } else {
+        // حتى لو لم يكن هناك jobNumber أو apiKey، نعرض الشاشة
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _errorMessage = null; // إخفاء رسالة الخطأ للسماح بالوصول للتطبيق
+          });
+        }
+      }
+    } catch (e, stackTrace) {
+      debugPrint('❌ [MainNav] Error loading data: $e');
+      debugPrint('❌ [MainNav] Stack trace: $stackTrace');
+      
+      // حتى في حالة الخطأ، نعرض الشاشة للسماح للمستخدم بالوصول للتطبيق
+      if (mounted) {
         setState(() {
           _isLoading = false;
-          _errorMessage = AppLocalizations().enterJobNumber;
+          _errorMessage = null; // إخفاء رسالة الخطأ للسماح بالوصول للتطبيق
         });
       }
-    } catch (e) {
-      debugPrint('❌ [MainNav] Error loading data: $e');
-      setState(() {
-        _isLoading = false;
-        _errorMessage = '${AppLocalizations().connectionError}: $e';
-      });
     }
   }
 

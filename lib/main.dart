@@ -1,6 +1,8 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -18,17 +20,56 @@ import 'package:nuzum_tracker/utils/safe_preferences.dart';
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> main() async {
+  // معالجة الأخطاء غير المتوقعة في main
+  FlutterError.onError = (FlutterErrorDetails details) {
+    if (kDebugMode) {
+      FlutterError.presentError(details);
+    } else {
+      // في release mode، طباعة الخطأ فقط
+      print('❌ [Main] Flutter Error: ${details.exception}');
+      print('❌ [Main] Stack: ${details.stack}');
+    }
+  };
+
+  // معالجة الأخطاء غير المتوقعة من async operations
+  PlatformDispatcher.instance.onError = (error, stack) {
+    if (kDebugMode) {
+      debugPrint('❌ [Main] Uncaught error: $error');
+      debugPrint('❌ [Main] Stack: $stack');
+    } else {
+      print('❌ [Main] Uncaught error: $error');
+    }
+    return true;
+  };
+
   WidgetsFlutterBinding.ensureInitialized();
 
   // تعيين Navigator Key لخدمة Geofencing
-  GeofenceService.setNavigatorKey(navigatorKey);
+  try {
+    GeofenceService.setNavigatorKey(navigatorKey);
+  } catch (e) {
+    debugPrint('⚠️ [Main] Error setting navigator key: $e');
+  }
 
-  // تهيئة إشعارات النظام
-  await GeofenceService.initializeNotifications();
+  // تهيئة إشعارات النظام مع معالجة الأخطاء
+  try {
+    await GeofenceService.initializeNotifications()
+        .timeout(
+      const Duration(seconds: 5),
+      onTimeout: () {
+        debugPrint('⚠️ [Main] Geofence notifications initialization timeout');
+        return;
+      },
+    );
+  } catch (e, stackTrace) {
+    debugPrint('⚠️ [Main] Warning: Could not initialize geofence notifications: $e');
+    debugPrint('⚠️ [Main] Stack trace: $stackTrace');
+    // نستمر في التطبيق حتى لو فشلت تهيئة الإشعارات
+  }
 
   // إعطاء وقت للـ platform channels للتهيئة
   // تأخير أطول لضمان جاهزية path_provider
-  await Future.delayed(const Duration(milliseconds: 300));
+  await Future.delayed(const Duration(milliseconds: 500));
 
   try {
     HttpOverrides.global = MyHttpOverrides();
@@ -106,38 +147,22 @@ Future<void> main() async {
 
     runApp(const MyApp());
   } catch (e, stackTrace) {
-    debugPrint('❌ [Main] Error during initialization: $e');
-    debugPrint('❌ [Main] Stack trace: $stackTrace');
+    // طباعة الخطأ في جميع الحالات (debug و release)
+    if (kDebugMode) {
+      debugPrint('❌ [Main] Error during initialization: $e');
+      debugPrint('❌ [Main] Stack trace: $stackTrace');
+    } else {
+      // في release mode، يمكن إرسال الخطأ إلى خدمة تحليل الأخطاء
+      print('❌ [Main] Error during initialization: $e');
+    }
 
     // حتى في حالة الخطأ، حاول تشغيل التطبيق لعرض رسالة خطأ للمستخدم
+    // أو الانتقال مباشرة إلى SplashScreen
     runApp(
       MaterialApp(
         title: 'Nuzum Tracker',
-        home: Scaffold(
-          body: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.error_outline, size: 64, color: Colors.red),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'حدث خطأ أثناء بدء التطبيق',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'الخطأ: $e',
-                    style: const TextStyle(fontSize: 14, color: Colors.grey),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
+        debugShowCheckedModeBanner: false,
+        home: const SplashScreen(), // الانتقال مباشرة إلى SplashScreen بدلاً من رسالة خطأ
       ),
     );
   }

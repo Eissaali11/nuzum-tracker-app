@@ -95,13 +95,21 @@ class _LoginScreenState extends State<LoginScreen>
           _nationalIdController.text.trim(),
         );
 
-        // الانتقال للشاشة الرئيسية
+        debugPrint('✅ [Login] Login successful, navigating to main screen');
+        
+        // الانتقال للشاشة الرئيسية مع تأخير بسيط لضمان حفظ البيانات
         if (mounted) {
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(
-              builder: (context) => const MainNavigationScreen(),
-            ),
-          );
+          // تأخير بسيط لضمان حفظ البيانات قبل الانتقال
+          await Future.delayed(const Duration(milliseconds: 300));
+          
+          if (mounted) {
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(
+                builder: (context) => const MainNavigationScreen(),
+              ),
+              (route) => false, // إزالة جميع الشاشات السابقة من الـ stack
+            );
+          }
         }
       } else {
         if (mounted) {

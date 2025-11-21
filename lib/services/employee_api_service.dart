@@ -9,11 +9,11 @@ import '../config/api_config.dart';
 import '../models/attendance_model.dart';
 import '../models/car_model.dart';
 import '../models/complete_employee_response.dart';
+import '../models/device_binding_model.dart';
 import '../models/employee_model.dart';
 import '../models/operation_model.dart';
 import '../models/salary_model.dart';
 import '../models/vehicle_details_response.dart';
-import '../services/api_logging_service.dart';
 import '../services/auth_service.dart';
 import '../utils/api_response.dart';
 import '../utils/safe_preferences.dart';
@@ -988,6 +988,162 @@ class EmployeeApiService {
       startDate: startDate,
       endDate: endDate,
     );
+  }
+
+  /// ============================================
+  /// 📱 جلب بيانات ربط الجهاز والـ SIM - Get Device and SIM Binding
+  /// ============================================
+  static Future<ApiResponse<DeviceBinding>> getDeviceBinding({
+    required String jobNumber,
+    required String apiKey,
+    int bindingId = 1, // رقم الربط (افتراضي 1)
+  }) async {
+    try {
+      final body = _getBaseBody(jobNumber: jobNumber, apiKey: apiKey);
+      body['binding_id'] = bindingId;
+
+      // محاولة استخدام endpoint محتمل لربط الجهاز
+      // إذا لم يكن موجوداً، سنحاول جلب البيانات من getCompleteProfile
+      final url = '${ApiConfig.baseUrl}/api/external/employee-device-binding';
+      
+      debugPrint('📱 [EmployeeAPI] Fetching device binding #$bindingId for jobNumber: $jobNumber');
+
+      final response = await http
+          .post(
+            Uri.parse(url),
+            headers: await _getHeaders(includeToken: false),
+            body: jsonEncode(body),
+          )
+          .timeout(timeoutDuration);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        if (data['success'] == true) {
+          final binding = DeviceBinding.fromJson(
+            data['data'] as Map<String, dynamic>,
+          );
+          return ApiResponse.success(
+            binding,
+            data['message'] ?? 'تم جلب بيانات الربط بنجاح',
+          );
+        } else {
+          return ApiResponse.error(
+            data['message'] ?? 'فشل جلب بيانات الربط',
+            data['error'],
+          );
+        }
+      } else if (response.statusCode == 404) {
+        // إذا لم يكن endpoint موجوداً، نحاول جلب البيانات من getCompleteProfile
+        debugPrint('⚠️ [EmployeeAPI] Device binding endpoint not found, trying complete profile...');
+        return _getDeviceBindingFromCompleteProfile(jobNumber, apiKey, bindingId);
+      } else {
+        return ApiResponse.error(
+          'خطأ في الاتصال: ${response.statusCode}',
+          'HTTP_ERROR',
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ [EmployeeAPI] Error getting device binding: $e');
+      // محاولة جلب البيانات من getCompleteProfile كبديل
+      try {
+        return await _getDeviceBindingFromCompleteProfile(jobNumber, apiKey, bindingId);
+      } catch (e2) {
+        return ApiResponse.error(
+          'فشل جلب بيانات الربط: $e2',
+          'FETCH_ERROR',
+        );
+      }
+    }
+  }
+
+  /// جلب بيانات ربط الجهاز من getCompleteProfile (بديل)
+  static Future<ApiResponse<DeviceBinding>> _getDeviceBindingFromCompleteProfile(
+    String jobNumber,
+    String apiKey,
+    int bindingId,
+  ) async {
+    try {
+      // محاولة جلب البيانات مباشرة من API
+      final body = _getBaseBody(jobNumber: jobNumber, apiKey: apiKey);
+      body['binding_id'] = bindingId;
+
+      // محاولة endpoints مختلفة محتملة
+      final possibleEndpoints = [
+        '/api/external/employee-device-binding',
+        '/api/v1/employee/device-binding',
+        '/api/employee/device-binding',
+        '/api/external/device-binding',
+        '/api/v1/device-binding',
+      ];
+      
+      debugPrint('📱 [EmployeeAPI] Trying to fetch device binding #$bindingId from multiple endpoints...');
+
+      for (final endpoint in possibleEndpoints) {
+        try {
+          final url = '${ApiConfig.baseUrl}$endpoint';
+          debugPrint('📱 [EmployeeAPI] Trying endpoint: $url');
+
+          final response = await http
+              .post(
+                Uri.parse(url),
+                headers: await _getHeaders(includeToken: false),
+                body: jsonEncode(body),
+              )
+              .timeout(const Duration(seconds: 10));
+
+          if (response.statusCode == 200) {
+            final data = jsonDecode(response.body) as Map<String, dynamic>;
+            if (data['success'] == true) {
+              // محاولة استخراج البيانات من أماكن مختلفة في الاستجابة
+              Map<String, dynamic>? bindingData;
+              
+              if (data['data'] != null) {
+                if (data['data'] is Map<String, dynamic>) {
+                  bindingData = data['data'] as Map<String, dynamic>;
+                } else if (data['data'] is List && (data['data'] as List).isNotEmpty) {
+                  // إذا كانت قائمة، نأخذ العنصر الأول أو العنصر المطابق لـ bindingId
+                  final list = data['data'] as List;
+                  if (bindingId <= list.length) {
+                    bindingData = list[bindingId - 1] as Map<String, dynamic>?;
+                  } else if (list.isNotEmpty) {
+                    bindingData = list[0] as Map<String, dynamic>?;
+                  }
+                }
+              } else if (data['device_binding'] != null) {
+                bindingData = data['device_binding'] as Map<String, dynamic>?;
+              } else if (data['device_and_sim'] != null) {
+                bindingData = data['device_and_sim'] as Map<String, dynamic>?;
+              }
+
+              if (bindingData != null) {
+                final binding = DeviceBinding.fromJson(bindingData);
+                debugPrint('✅ [EmployeeAPI] Device binding found in endpoint: $endpoint');
+                return ApiResponse.success(
+                  binding,
+                  data['message'] ?? 'تم جلب بيانات الربط بنجاح',
+                );
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('⚠️ [EmployeeAPI] Endpoint $endpoint failed: $e');
+          continue; // جرب endpoint التالي
+        }
+      }
+
+      // إذا فشلت جميع المحاولات، نعيد خطأ
+      debugPrint('❌ [EmployeeAPI] All endpoints failed, device binding not found');
+      return ApiResponse.error(
+        'بيانات ربط الجهاز غير متوفرة',
+        'NOT_FOUND',
+      );
+    } catch (e) {
+      debugPrint('❌ [EmployeeAPI] Error in _getDeviceBindingFromCompleteProfile: $e');
+      return ApiResponse.error(
+        'فشل جلب بيانات الربط: $e',
+        'FETCH_ERROR',
+      );
+    }
   }
 }
 

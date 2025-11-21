@@ -1870,7 +1870,7 @@ class _CarDetailsScreenState extends State<CarDetailsScreen> {
               ),
               const SizedBox(height: 16),
               const Text(
-                'رفع صور',
+                'رفع طلب صيانة ',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 18,
@@ -1890,10 +1890,10 @@ class _CarDetailsScreenState extends State<CarDetailsScreen> {
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    'فحص السلامة',
+                    'رفع صور وملاحظات ',
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.95),
-                      fontSize: 13,
+                      fontSize: 10,
                       fontWeight: FontWeight.w600,
                       letterSpacing: 0.3,
                     ),
@@ -1986,7 +1986,7 @@ class _CarDetailsScreenState extends State<CarDetailsScreen> {
               ),
               const SizedBox(height: 16),
               const Text(
-                'فحص السلامة',
+                'نموذج التفتيش ',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 18,
