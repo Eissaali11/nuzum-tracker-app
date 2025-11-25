@@ -4,7 +4,6 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
@@ -1105,46 +1104,6 @@ class _EmployeeIdCardScreenState extends State<EmployeeIdCardScreen> {
     );
   }
 
-  /// تحميل خط عربي للـ PDF
-  Future<pw.Font?> _loadArabicFont() async {
-    // محاولة تحميل خط Cairo من Google Fonts (TTF فقط)
-    try {
-      final fontUrl =
-          'https://fonts.gstatic.com/s/cairo/v28/SLXgc1nY6HkvangtZmpQdkhzfH5lkSs2SgRjCAGMQ1z0hGA-W1ToLQ-HmkA.ttf';
-      final response = await http
-          .get(Uri.parse(fontUrl))
-          .timeout(const Duration(seconds: 10));
-      if (response.statusCode == 200) {
-        final fontData = ByteData.view(response.bodyBytes.buffer);
-        final font = pw.Font.ttf(fontData);
-        debugPrint('✅ [PDF] Arabic font loaded from Google Fonts');
-        return font;
-      }
-    } catch (e) {
-      debugPrint('⚠️ [PDF] Error loading Arabic font from URL: $e');
-    }
-
-    // محاولة تحميل خط بديل - Amiri من GitHub
-    try {
-      final fontUrl3 =
-          'https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Regular.ttf';
-      final response2 = await http
-          .get(Uri.parse(fontUrl3))
-          .timeout(const Duration(seconds: 10));
-      if (response2.statusCode == 200) {
-        final fontData = ByteData.view(response2.bodyBytes.buffer);
-        final font = pw.Font.ttf(fontData);
-        debugPrint('✅ [PDF] Alternative Arabic font loaded');
-        return font;
-      }
-    } catch (e) {
-      debugPrint('⚠️ [PDF] Error loading alternative font: $e');
-    }
-
-    debugPrint('⚠️ [PDF] No Arabic font available, using default');
-    return null;
-  }
-
   /// تصدير بطاقة الهوية كملف PDF - التقاط الصفحة كصورة
   Future<void> _exportToPdf(BuildContext context) async {
     setState(() {
@@ -1297,122 +1256,5 @@ class _EmployeeIdCardScreenState extends State<EmployeeIdCardScreen> {
         });
       }
     }
-  }
-
-  /// بناء بطاقة معلومات في PDF - مطابق للتصميم في الصفحة
-  pw.Widget _buildPdfInfoCard(
-    String label,
-    String value, {
-    bool isFullWidth = false,
-    String? iconEmoji,
-    pw.Font? font,
-  }) {
-    return pw.Container(
-      padding: const pw.EdgeInsets.all(16),
-      decoration: pw.BoxDecoration(
-        color: PdfColor.fromInt(
-          0x1AFFFFFF,
-        ), // نفس لون الصفحة: Colors.white.withValues(alpha: 0.1)
-        borderRadius: pw.BorderRadius.circular(16),
-        border: pw.Border.all(color: PdfColors.white, width: 1.5),
-      ),
-      child: pw.Column(
-        mainAxisSize: pw.MainAxisSize.min,
-        children: [
-          if (iconEmoji != null) ...[
-            pw.Text(iconEmoji, style: pw.TextStyle(fontSize: 28)),
-            pw.SizedBox(height: 8),
-          ],
-          pw.Text(
-            label,
-            style: pw.TextStyle(
-              color: PdfColor.fromInt(
-                0xCCFFFFFF,
-              ), // نفس لون الصفحة: Colors.white.withValues(alpha: 0.8)
-              fontSize: 12,
-              fontWeight: pw.FontWeight.bold,
-              font: font,
-            ),
-            textAlign: pw.TextAlign.center,
-          ),
-          pw.SizedBox(height: 6),
-          pw.Text(
-            value,
-            style: pw.TextStyle(
-              color: PdfColors.white,
-              fontSize: 16,
-              fontWeight: pw.FontWeight.bold,
-              font: font,
-            ),
-            textAlign: pw.TextAlign.center,
-            maxLines: 2,
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// بناء صف معلومات في PDF - مطابق للتصميم في الصفحة
-  pw.Widget _buildPdfInfoRow(
-    String label,
-    String value, {
-    String? iconEmoji,
-    pw.Font? font,
-  }) {
-    return pw.Container(
-      padding: const pw.EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: pw.BoxDecoration(
-        color: PdfColor.fromInt(
-          0x1AFFFFFF,
-        ), // نفس لون الصفحة: Colors.white.withValues(alpha: 0.1)
-        borderRadius: pw.BorderRadius.circular(14),
-        border: pw.Border.all(color: PdfColors.white, width: 1.5),
-      ),
-      child: pw.Row(
-        children: [
-          if (iconEmoji != null) ...[
-            pw.Container(
-              padding: const pw.EdgeInsets.all(8),
-              decoration: pw.BoxDecoration(
-                color: PdfColor.fromInt(
-                  0x33FFFFFF,
-                ), // نفس لون الصفحة: Colors.white.withValues(alpha: 0.2)
-                borderRadius: pw.BorderRadius.circular(10),
-              ),
-              child: pw.Text(iconEmoji, style: pw.TextStyle(fontSize: 20)),
-            ),
-            pw.SizedBox(width: 16),
-          ],
-          pw.Expanded(
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text(
-                  label,
-                  style: pw.TextStyle(
-                    color: PdfColor.fromInt(
-                      0xCCFFFFFF,
-                    ), // نفس لون الصفحة: Colors.white.withValues(alpha: 0.8)
-                    fontSize: 12,
-                    fontWeight: pw.FontWeight.bold,
-                    font: font,
-                  ),
-                ),
-                pw.SizedBox(height: 4),
-                pw.Text(
-                  value,
-                  style: pw.TextStyle(
-                    color: PdfColors.white,
-                    fontSize: 16,
-                    fontWeight: pw.FontWeight.bold,
-                    font: font,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }

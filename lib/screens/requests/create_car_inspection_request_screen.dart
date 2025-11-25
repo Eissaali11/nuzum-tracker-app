@@ -42,7 +42,7 @@ class _CreateCarInspectionRequestScreenState
 
   List<Car> _cars = [];
   Car? _selectedCar;
-  String _inspectionType = 'receipt'; // القيمة الافتراضية (receipt للفحص الدوري)
+  String _inspectionType = 'vehicle_receipt'; // القيمة الافتراضية (استلام سيارة)
   int? _requestId;
   
   // إدخال رقم اللوحة يدوياً

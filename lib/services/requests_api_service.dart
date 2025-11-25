@@ -1371,19 +1371,13 @@ class RequestsApiService {
       // محاولة كل مسار حتى ينجح أحدها
       DioException? lastException;
       for (int i = 0; i < possiblePaths.length; i++) {
-        // ✅ إنشاء FormData جديد في كل محاولة (مهم جداً!)
-        final multipartFile = await MultipartFile.fromFile(
-          compressedFile.path,
-          filename: 'inspection_${DateTime.now().millisecondsSinceEpoch}.jpg',
-          contentType: MediaType('image', 'jpeg'),
-        );
-
-        // ✅ إنشاء FormData جديد في كل محاولة
-        final formData = FormData.fromMap({
-          'image': multipartFile,
-        });
-
         final uploadPath = possiblePaths[i];
+        
+        // قائمة أسماء الحقول المحتملة
+        final possibleFieldNames = (i < 2) 
+            ? ['image', 'file', 'photo'] // nuzum.site
+            : ['file', 'image', 'photo']; // eissahr.replit.app
+        
         // استخدام nuzum.site للمسارين الأولين، baseUrl للباقي
         final baseUrl = (i < 2) ? uploadBaseUrl : ApiConfig.baseUrl;
         final fullUrl = '$baseUrl$uploadPath';
@@ -1391,40 +1385,59 @@ class RequestsApiService {
         debugPrint('📤 [RequestsAPI] Attempt ${i + 1}/${possiblePaths.length}: $uploadPath');
         debugPrint('📤 [RequestsAPI] Base URL: $baseUrl');
         debugPrint('📤 [RequestsAPI] Full URL: $fullUrl');
-        debugPrint('📤 [RequestsAPI] FormData created (new instance)');
-        debugPrint('📤 [RequestsAPI] MultipartFile size: ${multipartFile.length} bytes');
-        debugPrint('📤 [RequestsAPI] MultipartFile filename: ${multipartFile.filename}');
         
-        try {
-          final startTime = DateTime.now();
+        // محاولة كل اسم حقل حتى ينجح أحدها
+        bool uploadSuccess = false;
+        for (final fieldName in possibleFieldNames) {
+          if (uploadSuccess) break;
           
-          // إنشاء Dio instance جديد للمسارين الأولين (nuzum.site)
-          // أو استخدام Dio الحالي للباقي (eissahr.replit.app)
-          final uploadDio = (i < 2) 
-              ? Dio(BaseOptions(
-                  baseUrl: baseUrl,
-                  connectTimeout: ApiConfig.timeoutDuration,
-                  receiveTimeout: ApiConfig.timeoutDuration,
-                ))
-              : dio;
-          
-          // إضافة interceptor للـ Token
-          if (i < 2) {
-            uploadDio.options.headers['Authorization'] = 'Bearer $token';
-          }
-          
-          final response = await uploadDio.post(
-            uploadPath,
-            data: formData,
-            onSendProgress: onProgress,
-            options: Options(
-              headers: {
-                'Authorization': 'Bearer $token',
-                // لا نضيف Content-Type يدوياً - Dio سيفعل ذلك تلقائياً مع boundary
-              },
-              validateStatus: (status) => true, // قبول جميع رموز الحالة للتحقق منها يدوياً
-            ),
+          // ✅ إنشاء FormData جديد في كل محاولة (مهم جداً!)
+          final multipartFile = await MultipartFile.fromFile(
+            compressedFile.path,
+            filename: 'inspection_${DateTime.now().millisecondsSinceEpoch}.jpg',
+            contentType: MediaType('image', 'jpeg'),
           );
+
+          // ✅ إنشاء FormData جديد في كل محاولة
+          final formData = FormData.fromMap({
+            fieldName: multipartFile,
+          });
+          
+          debugPrint('📤 [RequestsAPI] Trying field name: $fieldName');
+          debugPrint('📤 [RequestsAPI] FormData created (new instance)');
+          debugPrint('📤 [RequestsAPI] MultipartFile size: ${multipartFile.length} bytes');
+          debugPrint('📤 [RequestsAPI] MultipartFile filename: ${multipartFile.filename}');
+          
+          try {
+            final startTime = DateTime.now();
+            
+            // إنشاء Dio instance جديد للمسارين الأولين (nuzum.site)
+            // أو استخدام Dio الحالي للباقي (eissahr.replit.app)
+            final uploadDio = (i < 2) 
+                ? Dio(BaseOptions(
+                    baseUrl: baseUrl,
+                    connectTimeout: ApiConfig.timeoutDuration,
+                    receiveTimeout: ApiConfig.timeoutDuration,
+                  ))
+                : dio;
+            
+            // إضافة interceptor للـ Token
+            if (i < 2) {
+              uploadDio.options.headers['Authorization'] = 'Bearer $token';
+            }
+            
+            final response = await uploadDio.post(
+              uploadPath,
+              data: formData,
+              onSendProgress: onProgress,
+              options: Options(
+                headers: {
+                  'Authorization': 'Bearer $token',
+                  // لا نضيف Content-Type يدوياً - Dio سيفعل ذلك تلقائياً مع boundary
+                },
+                validateStatus: (status) => true, // قبول جميع رموز الحالة للتحقق منها يدوياً
+              ),
+            );
           
           final duration = DateTime.now().difference(startTime);
           debugPrint('📤 [RequestsAPI] Request completed in ${duration.inMilliseconds}ms');
@@ -1439,15 +1452,32 @@ class RequestsApiService {
             debugPrint('📋 [RequestsAPI] Media ID: ${responseData['media_id'] ?? responseData['image_id'] ?? 'N/A'}');
             debugPrint('📋 [RequestsAPI] Image URL: ${responseData['image_url'] ?? 'N/A'}');
             debugPrint('📋 [RequestsAPI] Local Path: ${responseData['local_path'] ?? 'N/A'}');
+            debugPrint('📋 [RequestsAPI] Drive View URL: ${responseData['drive_view_url'] ?? 'N/A (optional)'}');
             debugPrint('📋 [RequestsAPI] Drive URL: ${responseData['drive_url'] ?? 'N/A (optional)'}');
             debugPrint('📋 [RequestsAPI] Drive File ID: ${responseData['drive_file_id'] ?? 'N/A (optional)'}');
             
+            // بناء image_url من local_path إذا لم يكن موجوداً
+            String? imageUrl = responseData['image_url'];
+            if ((imageUrl == null || imageUrl.isEmpty) && 
+                responseData['local_path'] != null) {
+              final localPath = responseData['local_path'] as String;
+              final cleanPath = localPath.startsWith('static/') 
+                  ? localPath.substring(7)
+                  : localPath.startsWith('uploads/')
+                      ? localPath
+                      : 'uploads/$localPath';
+              imageUrl = '${ApiConfig.nuzumBaseUrl}/static/$cleanPath';
+              debugPrint('📋 [RequestsAPI] Built image_url from local_path: $imageUrl');
+            }
+            
+            uploadSuccess = true;
             return {
               'success': true,
               'data': {
                 'media_id': responseData['media_id'] ?? responseData['image_id'],
-                'image_url': responseData['image_url'], // ✅ رابط مباشر للصورة المحفوظة محلياً
+                'image_url': imageUrl, // ✅ رابط مباشر للصورة المحفوظة محلياً
                 'local_path': responseData['local_path'], // ✅ المسار المحلي
+                'drive_view_url': responseData['drive_view_url'], // ✅ Google Drive View URL (اختياري)
                 'drive_url': responseData['drive_url'], // ✅ Google Drive (اختياري - قد يكون null)
                 'drive_file_id': responseData['drive_file_id'], // ✅ Google Drive File ID (اختياري)
               },
@@ -1496,15 +1526,28 @@ class RequestsApiService {
               // نعتبر العملية ناجحة لأن الصورة محفوظة محلياً
               // حتى لو فشل حفظها في قاعدة البيانات
               debugPrint('✅ [RequestsAPI] Considering upload successful - image saved locally');
+              
+              // بناء image_url من local_path
+              String? imageUrl;
+              if (extractedLocalPath != null) {
+                final cleanPath = extractedLocalPath.startsWith('static/') 
+                    ? extractedLocalPath.substring(7)
+                    : extractedLocalPath.startsWith('uploads/')
+                        ? extractedLocalPath
+                        : 'uploads/$extractedLocalPath';
+                imageUrl = '${ApiConfig.nuzumBaseUrl}/static/$cleanPath';
+              }
+              
+              uploadSuccess = true;
               return {
                 'success': true,
                 'data': {
                   'media_id': null, // لم يتم حفظه في قاعدة البيانات
-                  'image_url': extractedLocalPath != null 
-                      ? 'https://nuzum.site/static/$extractedLocalPath'
-                      : null,
+                  'image_url': imageUrl,
                   'local_path': extractedLocalPath,
+                  'drive_view_url': null,
                   'drive_url': null,
+                  'drive_file_id': null,
                 },
                 'warning': 'تم رفع الصورة بنجاح. حدث خطأ في قاعدة البيانات (العمود local_path غير موجود). يرجى تحديث قاعدة البيانات.',
               };
@@ -1539,31 +1582,39 @@ class RequestsApiService {
             if (response.statusCode != 404 && response.statusCode != 500) {
               return {'success': false, 'error': errorMessage};
             }
-          }
-        } on DioException catch (e) {
-          lastException = e;
-          debugPrint('❌ [RequestsAPI] DioException for path $uploadPath:');
-          debugPrint('   Status code: ${e.response?.statusCode}');
-          debugPrint('   Error type: ${e.type}');
-          debugPrint('   Error message: ${e.message}');
-          
-          // إذا كان 404، جرب المسار التالي
-          if (e.response?.statusCode == 404 || e.type == DioExceptionType.badResponse) {
-            debugPrint('⚠️ [RequestsAPI] Path not found or bad response, trying next path...');
+            // إذا كان 404 أو 500، جرب اسم الحقل التالي
             continue;
           }
-          
-          // إذا كان خطأ اتصال، لا نعيد المحاولة
-          if (e.type == DioExceptionType.connectionTimeout ||
-              e.type == DioExceptionType.receiveTimeout ||
-              e.type == DioExceptionType.connectionError) {
-            debugPrint('❌ [RequestsAPI] Connection error, stopping attempts');
-            break;
+          } on DioException catch (e) {
+          lastException = e;
+            debugPrint('❌ [RequestsAPI] DioException for path $uploadPath with field $fieldName:');
+            debugPrint('   Status code: ${e.response?.statusCode}');
+            debugPrint('   Error type: ${e.type}');
+            debugPrint('   Error message: ${e.message}');
+            
+            // إذا كان 404، جرب اسم الحقل التالي
+            if (e.response?.statusCode == 404 || e.type == DioExceptionType.badResponse) {
+              debugPrint('⚠️ [RequestsAPI] Path not found or bad response, trying next field name...');
+              continue; // جرب اسم الحقل التالي
+            }
+            
+            // إذا كان خطأ اتصال، جرب المسار التالي
+            if (e.type == DioExceptionType.connectionTimeout ||
+                e.type == DioExceptionType.receiveTimeout ||
+                e.type == DioExceptionType.connectionError) {
+              debugPrint('❌ [RequestsAPI] Connection error, trying next path...');
+              break; // اخرج من حلقة أسماء الحقول وجرب المسار التالي
+            }
+            // للأخطاء الأخرى، جرب اسم الحقل التالي
+            continue;
+          } catch (e) {
+            debugPrint('❌ [RequestsAPI] Unexpected error for path $uploadPath with field $fieldName: $e');
+            continue; // جرب اسم الحقل التالي
           }
-        } catch (e) {
-          debugPrint('❌ [RequestsAPI] Unexpected error for path $uploadPath: $e');
-          continue;
         }
+        
+        // إذا نجح الرفع، اخرج من الحلقة الخارجية
+        if (uploadSuccess) break;
       }
       
       // إذا فشلت جميع المحاولات
@@ -1695,19 +1746,33 @@ class RequestsApiService {
   static Future<Map<String, dynamic>> getRequestDetails(int requestId) async {
     try {
       debugPrint('🔄 [RequestsAPI] Getting general request details: $requestId');
+      debugPrint('🔄 [RequestsAPI] URL: ${ApiConfig.requestDetailsPath}/$requestId');
+      
       final response = await dio.get(
         '${ApiConfig.requestDetailsPath}/$requestId',
       );
 
+      debugPrint('📥 [RequestsAPI] Response status: ${response.statusCode}');
+      debugPrint('📥 [RequestsAPI] Response data: ${response.data}');
+
       if (response.statusCode == 200) {
         final data = response.data as Map<String, dynamic>;
         if (data['success'] == true) {
+          final requestData = data['data'] ?? data['request'] ?? data;
           debugPrint('✅ [RequestsAPI] Request details retrieved successfully');
-          return {'success': true, 'data': data['data']};
+          debugPrint('📋 [RequestsAPI] Request data keys: ${requestData is Map ? (requestData as Map).keys.toList() : 'N/A'}');
+          return {'success': true, 'data': requestData is Map<String, dynamic> ? requestData : {'id': requestId, ...?requestData}};
+        } else {
+          debugPrint('⚠️ [RequestsAPI] API returned success: false');
+          debugPrint('📋 [RequestsAPI] Error message: ${data['message'] ?? data['error']}');
+          return {
+            'success': false,
+            'error': data['message'] ?? data['error'] ?? 'فشل جلب التفاصيل',
+          };
         }
       }
 
-      return {'success': false, 'error': 'فشل جلب التفاصيل'};
+      return {'success': false, 'error': 'فشل جلب التفاصيل (${response.statusCode})'};
     } on DioException catch (e) {
       final statusCode = e.response?.statusCode;
       
@@ -1720,14 +1785,22 @@ class RequestsApiService {
       debugPrint('📋 [RequestsAPI] Status code: $statusCode');
       debugPrint('📋 [RequestsAPI] Response: ${e.response?.data}');
       
+      final errorData = e.response?.data;
+      String errorMessage = 'فشل جلب التفاصيل';
+      if (errorData is Map<String, dynamic>) {
+        errorMessage = errorData['message'] ?? 
+                       errorData['error'] ?? 
+                       errorData['detail'] ??
+                       errorMessage;
+      }
+      
       return {
         'success': false,
-        'error': e.response?.data['message'] ?? 
-                 e.response?.data['error'] ?? 
-                 'فشل جلب التفاصيل',
+        'error': errorMessage,
       };
-    } catch (e) {
+    } catch (e, stackTrace) {
       debugPrint('❌ [RequestsAPI] Get details error: $e');
+      debugPrint('❌ [RequestsAPI] Stack trace: $stackTrace');
       return {'success': false, 'error': 'حدث خطأ: $e'};
     }
   }

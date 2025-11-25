@@ -136,9 +136,9 @@ class AuthService {
     required String employeeId,
     required String nationalId,
   }) async {
-    // محاولة المسار v1 من baseUrl (المسار الأساسي)
+    // استخدام nuzum.site لتسجيل الدخول - المسار الصحيح
     try {
-      final loginUrl = '${ApiConfig.baseUrl}${ApiConfig.loginPath}';
+      final loginUrl = '${ApiConfig.nuzumBaseUrl}${ApiConfig.loginPath}';
       debugPrint('🔄 [Auth] Trying login: $loginUrl');
       
       final loginData = {

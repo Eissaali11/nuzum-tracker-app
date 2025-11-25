@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../models/salary_model.dart';
-import '../services/language_service.dart';
 import '../utils/app_localizations.dart';
 import '../utils/responsive_helper.dart';
 import '../widgets/salary_item.dart';

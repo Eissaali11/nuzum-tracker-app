@@ -54,168 +54,102 @@ class ExternalSafetyService {
       debugPrint('   Driver: $driverName');
       debugPrint('   Endpoint: ${ApiConfig.getExternalSafetyChecksUrl()}');
 
-      // قائمة المسارات المحتملة للفحص
-      // المسار الأساسي: POST /api/v1/external-safety/checks (على nuzum.site) - ✅ متاح الآن
-      final possiblePaths = [
-        ApiConfig.externalSafetyChecksPath, // /api/v1/external-safety/checks (الأولوية الأولى - nuzum.site)
-        '/api/external-safety/checks', // بدون v1
-        '/api/v1/safety-checks', // مسار بديل
-        '/api/safety-checks', // مسار بديل بدون v1
-      ];
+      // استخدام nuzum.site فقط - المسار الصحيح
+      final baseUrl = ApiConfig.nuzumBaseUrl; // https://nuzum.site
+      final path = ApiConfig.externalSafetyChecksPath; // /api/v1/external-safety/checks
 
-      // قائمة Base URLs المحتملة
-      final possibleBaseUrls = [
-        ApiConfig.nuzumBaseUrl, // https://nuzum.site
-        ApiConfig.baseUrl, // https://eissahr.replit.app
-      ];
+      debugPrint('📤 [ExternalSafety] Creating safety check on: $baseUrl$path');
+        debugPrint('📤 [ExternalSafety] Creating safety check on: $baseUrl$path');
 
-      DioException? lastException;
-      Map<String, dynamic>? lastResponseData;
+      // استخدام Dio جديد مع nuzum.site
+      final uploadDio = Dio(BaseOptions(
+        baseUrl: baseUrl,
+        connectTimeout: ApiConfig.timeoutDuration,
+        receiveTimeout: ApiConfig.timeoutDuration,
+      ));
 
-      // محاولة كل مسار مع كل base URL
-      for (final baseUrl in possibleBaseUrls) {
-        for (final path in possiblePaths) {
-          try {
-            debugPrint('📤 [ExternalSafety] Trying: $baseUrl$path');
+      final fullUrl = '$baseUrl$path';
+      await ApiLoggingService.logApiRequest(
+        method: 'POST',
+        url: fullUrl,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer [REDACTED]',
+        },
+        body: requestBody,
+        serviceName: 'external_safety',
+      );
 
-            // استخدام Dio جديد
-            final uploadDio = Dio(BaseOptions(
-              baseUrl: baseUrl,
-              connectTimeout: ApiConfig.timeoutDuration,
-              receiveTimeout: ApiConfig.timeoutDuration,
-            ));
+      final response = await uploadDio.post(
+        path,
+        data: requestBody,
+        options: Options(
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          validateStatus: (status) => true,
+        ),
+      );
 
-            final fullUrl = '$baseUrl$path';
-            await ApiLoggingService.logApiRequest(
-              method: 'POST',
-              url: fullUrl,
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer [REDACTED]',
-              },
-              body: requestBody,
-              serviceName: 'external_safety',
-            );
+      final duration = DateTime.now().difference(startTime);
+      await ApiLoggingService.logApiResponse(
+        method: 'POST',
+        url: fullUrl,
+        statusCode: response.statusCode ?? 0,
+        headers: response.headers.map,
+        responseData: response.data,
+        duration: duration,
+        serviceName: 'external_safety',
+      );
 
-            final response = await uploadDio.post(
-              path,
-              data: requestBody,
-              options: Options(
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': 'Bearer $token',
-                },
-                validateStatus: (status) => true, // قبول جميع رموز الحالة
-              ),
-            );
+      debugPrint('📤 [ExternalSafety] Response status: ${response.statusCode}');
+      debugPrint('📤 [ExternalSafety] Response data: ${response.data}');
 
-            final duration = DateTime.now().difference(startTime);
-            await ApiLoggingService.logApiResponse(
-              method: 'POST',
-              url: fullUrl,
-              statusCode: response.statusCode ?? 0,
-              headers: response.headers.map,
-              responseData: response.data,
-              duration: duration,
-              serviceName: 'external_safety',
-            );
+      // إذا نجح الطلب (200 أو 201)
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = response.data as Map<String, dynamic>;
+        if (data['success'] == true) {
+          final checkData = data['data'] as Map<String, dynamic>;
+          debugPrint('✅ [ExternalSafety] Safety check created successfully');
+          debugPrint('   Check ID: ${checkData['check_id']}');
+          debugPrint('   Vehicle Plate: ${checkData['vehicle_plate_number']}');
 
-            debugPrint('📤 [ExternalSafety] Response status: ${response.statusCode}');
-            debugPrint('📤 [ExternalSafety] Response data: ${response.data}');
-
-            // إذا نجح الطلب (200 أو 201)
-            if (response.statusCode == 200 || response.statusCode == 201) {
-              final data = response.data as Map<String, dynamic>;
-              if (data['success'] == true) {
-                final checkData = data['data'] as Map<String, dynamic>;
-                debugPrint('✅ [ExternalSafety] Safety check created successfully via: $baseUrl$path');
-                debugPrint('   Check ID: ${checkData['check_id']}');
-                debugPrint('   Vehicle Plate: ${checkData['vehicle_plate_number']}');
-
-                return ApiResponse<Map<String, dynamic>>(
-                  success: true,
-                  data: checkData,
-                  message: data['message'] ?? 'تم إنشاء فحص السلامة بنجاح',
-                );
-              } else {
-                // إذا كان success = false، احفظ الاستجابة للمحاولة التالية
-                lastResponseData = data;
-                debugPrint('⚠️ [ExternalSafety] Request failed with success=false: ${data['message'] ?? data['error']}');
-                continue; // جرب المسار التالي
-              }
-            } else if (response.statusCode == 404) {
-              // إذا كان 404، جرب المسار التالي
-              debugPrint('⚠️ [ExternalSafety] Path not found (404), trying next path...');
-              continue;
-            } else {
-              // إذا كان خطأ آخر، احفظه
-              lastResponseData = response.data is Map<String, dynamic>
-                  ? response.data as Map<String, dynamic>
-                  : {'error': 'Status ${response.statusCode}'};
-              debugPrint('⚠️ [ExternalSafety] Request failed with status ${response.statusCode}');
-              continue; // جرب المسار التالي
-            }
-          } on DioException catch (e) {
-            lastException = e;
-            debugPrint('⚠️ [ExternalSafety] DioException with $baseUrl$path: ${e.message}');
-            if (e.response?.statusCode == 404) {
-              continue; // جرب المسار التالي
-            }
-            // للأخطاء الأخرى، نواصل المحاولة
-          } catch (e) {
-            debugPrint('⚠️ [ExternalSafety] Exception with $baseUrl$path: $e');
-            continue; // جرب المسار التالي
-          }
+          return ApiResponse<Map<String, dynamic>>(
+            success: true,
+            data: checkData,
+            message: data['message'] ?? 'تم إنشاء فحص السلامة بنجاح',
+          );
+        } else {
+          return ApiResponse<Map<String, dynamic>>(
+            success: false,
+            message: data['message'] ?? data['error'] ?? 'فشل إنشاء فحص السلامة',
+          );
         }
-      }
-
-      // إذا فشلت جميع المحاولات
-      if (lastException != null) {
-        throw lastException;
-      }
-
-      // إذا كان هناك استجابة محفوظة
-      if (lastResponseData != null) {
+      } else if (response.statusCode == 401) {
+        final errorData = response.data is Map<String, dynamic>
+            ? response.data as Map<String, dynamic>
+            : <String, dynamic>{};
+        final serverMessage = errorData['message'] ?? errorData['error'] ?? '';
+        
+        debugPrint('❌ [ExternalSafety] Authentication failed (401): $serverMessage');
         return ApiResponse<Map<String, dynamic>>(
           success: false,
-          message: lastResponseData['message'] ?? 
-                   lastResponseData['error'] ?? 
-                   'فشل إنشاء فحص السلامة. يرجى التحقق من المسار الصحيح.',
+          message: serverMessage.isNotEmpty 
+              ? serverMessage.toString()
+              : 'غير مصرح لك. يرجى تسجيل الدخول مرة أخرى',
+        );
+      } else {
+        final errorData = response.data is Map<String, dynamic>
+            ? response.data as Map<String, dynamic>
+            : <String, dynamic>{};
+        final errorMessage = errorData['message'] ?? errorData['error'] ?? 'فشل إنشاء فحص السلامة';
+        
+        return ApiResponse<Map<String, dynamic>>(
+          success: false,
+          message: errorMessage.toString(),
         );
       }
-
-      // إذا فشلت جميع المحاولات، نعيد رسالة خطأ واضحة
-      String errorMessage = 'فشل إنشاء فحص السلامة.';
-      
-      // إذا كان الخطأ 404 من جميع المسارات
-      if (lastException != null && lastException.response?.statusCode == 404) {
-        errorMessage = '⚠️ الـ API غير متاح حالياً على السرفر.\n\n'
-            'تم تجربة جميع المسارات الممكنة ولكن جميعها غير متاحة:\n'
-            '• https://nuzum.site/api/v1/external-safety/checks\n'
-            '• https://nuzum.site/api/external-safety/checks\n'
-            '• https://eissahr.replit.app/api/v1/external-safety/checks\n'
-            '• https://eissahr.replit.app/api/external-safety/checks\n\n'
-            'يرجى:\n'
-            '1. التحقق من أن الـ API متاح على السرفر\n'
-            '2. المحاولة لاحقاً\n'
-            '3. التواصل مع الدعم الفني';
-      } else if (lastResponseData != null) {
-        // إذا كان هناك استجابة من السرفر (مثل 400, 422, 500)
-        final serverMessage = lastResponseData['message'] ?? lastResponseData['error'];
-        if (serverMessage != null) {
-          errorMessage = serverMessage.toString();
-        }
-      } else {
-        // إذا لم يكن هناك استجابة أو استثناء محفوظ
-        errorMessage = 'فشل الاتصال بالسرفر. يرجى التحقق من اتصال الإنترنت والمحاولة مرة أخرى.';
-      }
-      
-      debugPrint('❌ [ExternalSafety] Final error message: $errorMessage');
-      
-      return ApiResponse<Map<String, dynamic>>(
-        success: false,
-        message: errorMessage,
-      );
     } on DioException catch (e) {
       await ApiLoggingService.logApiError(
         method: 'POST',
@@ -328,14 +262,19 @@ class ExternalSafetyService {
       debugPrint('📤 [ExternalSafety] FormData created successfully');
       debugPrint('📤 [ExternalSafety] Upload URL: ${ApiConfig.getExternalSafetyUploadImageUrl(checkId)}');
 
+      // استخدام nuzum.site فقط - المسار الصحيح
+      final baseUrl = ApiConfig.nuzumBaseUrl; // https://nuzum.site
+      final uploadPath = '${ApiConfig.externalSafetyChecksPath}/$checkId/upload-image';
+      final uploadUrl = '$baseUrl$uploadPath';
+
+      debugPrint('📤 [ExternalSafety] Uploading image to: $uploadUrl');
+
       // استخدام Dio جديد مع nuzum.site
       final uploadDio = Dio(BaseOptions(
-        baseUrl: ApiConfig.nuzumBaseUrl,
+        baseUrl: baseUrl,
         connectTimeout: ApiConfig.timeoutDuration,
         receiveTimeout: ApiConfig.timeoutDuration,
       ));
-
-      final uploadUrl = ApiConfig.getExternalSafetyUploadImageUrl(checkId);
       
       await ApiLoggingService.logApiRequest(
         method: 'POST',
@@ -348,7 +287,7 @@ class ExternalSafetyService {
       );
 
       final response = await uploadDio.post(
-        '${ApiConfig.externalSafetyChecksPath}/$checkId/upload-image',
+        uploadPath,
         data: formData,
         onSendProgress: onProgress,
         options: Options(
@@ -389,17 +328,20 @@ class ExternalSafetyService {
           data: responseData,
           message: data['message'] ?? 'تم رفع الصورة بنجاح',
         );
+      } else {
+        final errorData = response.data is Map<String, dynamic>
+            ? response.data as Map<String, dynamic>
+            : <String, dynamic>{};
+        final errorMessage = errorData['message'] ?? 
+                            errorData['error'] ?? 
+                            'فشل رفع الصورة: ${response.statusCode}';
+        
+        debugPrint('❌ [ExternalSafety] Upload failed: $errorMessage');
+        return ApiResponse<Map<String, dynamic>>(
+          success: false,
+          message: errorMessage,
+        );
       }
-
-      final errorMessage = response.data is Map<String, dynamic>
-          ? (response.data['error'] ?? response.data['message'] ?? 'فشل رفع الصورة')
-          : 'فشل رفع الصورة: ${response.statusCode}';
-
-      debugPrint('❌ [ExternalSafety] Upload failed: $errorMessage');
-      return ApiResponse<Map<String, dynamic>>(
-        success: false,
-        message: errorMessage,
-      );
     } on DioException catch (e) {
       await ApiLoggingService.logApiError(
         method: 'POST',
@@ -754,5 +696,6 @@ class ExternalSafetyService {
       return file;
     }
   }
+
 }
 

@@ -12,7 +12,6 @@ import '../services/language_service.dart';
 import '../utils/app_localizations.dart';
 import '../widgets/beautiful_card.dart';
 import 'employee_profile_screen.dart';
-import 'main_navigation_screen.dart';
 
 class TrackingScreen extends StatefulWidget {
   const TrackingScreen({super.key});
@@ -227,81 +226,6 @@ class _TrackingScreenState extends State<TrackingScreen> {
     }
   }
 
-  Future<void> _stopTracking() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            const Icon(Icons.stop_circle, color: Colors.red),
-            const SizedBox(width: 10),
-            Text(
-              AppLocalizations().stopTracking,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        content: const Text(
-          'هل أنت متأكد أنك تريد إيقاف تتبع الموقع؟ سيتم مسح جميع البيانات.',
-          style: TextStyle(fontSize: 16),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(
-              AppLocalizations().cancel,
-              style: const TextStyle(fontSize: 16),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            child: Text(
-              AppLocalizations().confirm,
-              style: const TextStyle(fontSize: 16),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true) {
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        final jobNumber = prefs.getString('jobNumber');
-        final apiKey = prefs.getString('apiKey');
-
-        if (jobNumber != null && apiKey != null) {
-          debugPrint('🛑 [Tracking] Sending stop status to server...');
-          await LocationApiService.sendStopStatusWithRetry(
-            jobNumber: jobNumber,
-            apiKey: apiKey,
-          );
-          debugPrint('✅ [Tracking] Stop status sent successfully');
-        }
-      } catch (e) {
-        debugPrint('❌ [Tracking] Error sending stop status: $e');
-      }
-
-      await stopLocationTracking();
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.clear();
-
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const MainNavigationScreen()),
-        );
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {

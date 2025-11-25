@@ -41,6 +41,19 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    // قمع تحذيرات Java unchecked/unsafe operations
+    lint {
+        disable += "UnsafeNativeCodeLocation"
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
+}
+
+// قمع تحذيرات Java compiler (unchecked/unsafe operations)
+tasks.withType<org.gradle.api.tasks.compile.JavaCompile>().configureEach {
+    options.compilerArgs.add("-Xlint:-unchecked")
+    options.compilerArgs.add("-Xlint:-deprecation")
 }
 
 dependencies {

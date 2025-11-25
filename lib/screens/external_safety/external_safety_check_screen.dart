@@ -57,13 +57,70 @@ class _ExternalSafetyCheckScreenState extends State<ExternalSafetyCheckScreen> {
   double _uploadProgress = 0.0;
   int? _checkId;
   bool _isLoadingEmployee = false;
+  bool _isLoadingCar = false;
+  Car? _carDetails; // تفاصيل السيارة المحدثة من API
 
   @override
   void initState() {
     super.initState();
+    _loadCarDetails(); // جلب تفاصيل السيارة من API
     _loadEmployeeData();
     // إضافة بطاقة أولية
     _addImageCard();
+  }
+
+  /// جلب تفاصيل السيارة من API
+  Future<void> _loadCarDetails() async {
+    setState(() {
+      _isLoadingCar = true;
+    });
+
+    try {
+      final jobNumber = await SafePreferences.getString('jobNumber');
+      final apiKey = await SafePreferences.getString('apiKey');
+
+      if (jobNumber != null && apiKey != null && jobNumber.isNotEmpty) {
+        debugPrint('🚗 [ExternalSafety] Loading car details for ID: ${widget.car.carId}');
+        
+        final response = await EmployeeApiService.getCarDetails(
+          carId: widget.car.carId,
+          jobNumber: jobNumber,
+          apiKey: apiKey,
+        );
+
+        if (mounted && response.success && response.data != null) {
+          debugPrint('✅ [ExternalSafety] Car details loaded successfully');
+          setState(() {
+            _carDetails = response.data;
+          });
+        } else {
+          debugPrint('⚠️ [ExternalSafety] Failed to load car details, using provided car data');
+          // استخدام بيانات السيارة الممررة كبديل
+          setState(() {
+            _carDetails = widget.car;
+          });
+        }
+      } else {
+        // إذا لم تكن هناك بيانات تسجيل دخول، استخدم بيانات السيارة الممررة
+        setState(() {
+          _carDetails = widget.car;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ [ExternalSafety] Error loading car details: $e');
+      // في حالة الخطأ، استخدم بيانات السيارة الممررة
+      if (mounted) {
+        setState(() {
+          _carDetails = widget.car;
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingCar = false;
+        });
+      }
+    }
   }
 
   /// جلب بيانات الموظف تلقائياً وملء الحقول
@@ -288,11 +345,59 @@ class _ExternalSafetyCheckScreenState extends State<ExternalSafetyCheckScreen> {
     });
 
     try {
+      // استخدام تفاصيل السيارة المحدثة من API إن وجدت، وإلا استخدم البيانات الممررة
+      final carToUse = _carDetails ?? widget.car;
+      
       // تحويل vehicle_id من String إلى int
-      final vehicleId = int.tryParse(widget.car.carId);
+      // محاولة عدة طرق لاستخراج vehicle_id
+      int? vehicleId;
+      
+      // 1. محاولة التحويل المباشر
+      vehicleId = int.tryParse(carToUse.carId);
+      
+      // 2. إذا فشل، محاولة استخراج الرقم من النص (مثل "temp_123" -> 123)
       if (vehicleId == null || vehicleId <= 0) {
-        throw Exception('رقم السيارة غير صحيح');
+        final numberMatch = RegExp(r'\d+').firstMatch(carToUse.carId);
+        if (numberMatch != null) {
+          vehicleId = int.tryParse(numberMatch.group(0)!);
+        }
       }
+      
+      // 3. إذا فشل كل شيء، محاولة جلب vehicle_id من API
+      if (vehicleId == null || vehicleId <= 0) {
+        debugPrint('⚠️ [ExternalSafety] Could not parse vehicle_id, trying to fetch from API...');
+        try {
+          final jobNumber = await SafePreferences.getString('jobNumber');
+          final apiKey = await SafePreferences.getString('apiKey');
+          
+          if (jobNumber != null && apiKey != null) {
+            final carResponse = await EmployeeApiService.getCarDetails(
+              carId: carToUse.carId,
+              jobNumber: jobNumber,
+              apiKey: apiKey,
+            );
+            
+            if (carResponse.success && carResponse.data != null) {
+              final updatedCar = carResponse.data!;
+              vehicleId = int.tryParse(updatedCar.carId);
+              if (vehicleId == null || vehicleId <= 0) {
+                final numberMatch = RegExp(r'\d+').firstMatch(updatedCar.carId);
+                if (numberMatch != null) {
+                  vehicleId = int.tryParse(numberMatch.group(0)!);
+                }
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('❌ [ExternalSafety] Error fetching vehicle_id from API: $e');
+        }
+      }
+      
+      if (vehicleId == null || vehicleId <= 0) {
+        throw Exception('رقم السيارة غير صحيح. يرجى التأكد من أن السيارة مسجلة في النظام.');
+      }
+      
+      debugPrint('✅ [ExternalSafety] Using vehicle_id: $vehicleId');
 
       final result = await ExternalSafetyService.createSafetyCheck(
         vehicleId: vehicleId,
@@ -481,21 +586,34 @@ class _ExternalSafetyCheckScreenState extends State<ExternalSafetyCheckScreen> {
                     Icons.directions_car_rounded,
                     const Color(0xFF8B5CF6),
                     [
-                      _buildInfoRow(
-                        Icons.confirmation_number_rounded,
-                        'رقم اللوحة',
-                        widget.car.plateNumber,
-                      ),
-                      _buildInfoRow(
-                        Icons.directions_car_rounded,
-                        'الموديل',
-                        widget.car.model,
-                      ),
-                      _buildInfoRow(
-                        Icons.color_lens_rounded,
-                        'اللون',
-                        widget.car.color,
-                      ),
+                      if (_isLoadingCar)
+                        const Padding(
+                          padding: EdgeInsets.all(16.0),
+                          child: Center(child: CircularProgressIndicator()),
+                        )
+                      else ...[
+                        _buildInfoRow(
+                          Icons.confirmation_number_rounded,
+                          'رقم اللوحة',
+                          (_carDetails ?? widget.car).plateNumber,
+                        ),
+                        _buildInfoRow(
+                          Icons.directions_car_rounded,
+                          'الموديل',
+                          (_carDetails ?? widget.car).model,
+                        ),
+                        _buildInfoRow(
+                          Icons.color_lens_rounded,
+                          'اللون',
+                          (_carDetails ?? widget.car).color,
+                        ),
+                        if ((_carDetails ?? widget.car).carId.isNotEmpty)
+                          _buildInfoRow(
+                            Icons.tag_rounded,
+                            'رقم السيارة',
+                            (_carDetails ?? widget.car).carId,
+                          ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 20),

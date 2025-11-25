@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -13,7 +12,6 @@ import 'package:nuzum_tracker/services/api_service.dart';
 import 'package:nuzum_tracker/services/background_service.dart';
 import 'package:nuzum_tracker/services/geofence_service.dart';
 import 'package:nuzum_tracker/services/language_service.dart';
-import 'package:nuzum_tracker/services/location_service.dart';
 import 'package:nuzum_tracker/utils/safe_preferences.dart';
 
 // GlobalKey للوصول إلى Navigator من أي مكان (لإشعارات Geofencing)
@@ -301,33 +299,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     LanguageService.instance.removeListener(_onLanguageChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
-  }
-
-  Future<void> _sendStopStatusIfNeeded() async {
-    try {
-      // استخدام SafePreferences بدلاً من SharedPreferences مباشرة
-      final jobNumber = await SafePreferences.getString('jobNumber');
-      final apiKey = await SafePreferences.getString('apiKey');
-
-      // فقط إذا كان التطبيق مُعدّ بالفعل (يوجد jobNumber و apiKey)
-      if (jobNumber != null && apiKey != null) {
-        debugPrint('🛑 [App] App is closing, sending stop status...');
-        // استخدام timeout قصير لإرسال سريع
-        await LocationApiService.sendStopStatusWithRetry(
-          jobNumber: jobNumber,
-          apiKey: apiKey,
-        ).timeout(
-          const Duration(seconds: 5),
-          onTimeout: () {
-            debugPrint('⏱️ [App] Stop status timeout, but continuing...');
-            return false;
-          },
-        );
-        debugPrint('✅ [App] Stop status sent successfully');
-      }
-    } catch (e) {
-      debugPrint('❌ [App] Error sending stop status: $e');
-    }
   }
 
   @override

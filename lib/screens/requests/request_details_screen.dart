@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../config/api_config.dart';
 import '../../services/requests_api_service.dart';
 
 /// ============================================
@@ -33,15 +35,49 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
     });
 
     try {
-      // محاولة استخدام الدوال المتخصصة أولاً
+      // محاولة استخدام الدالة العامة أولاً (الأكثر موثوقية)
+      final generalResult = await RequestsApiService.getRequestDetails(widget.requestId);
+      if (generalResult['success'] == true && generalResult['data'] != null) {
+        final data = generalResult['data'] as Map<String, dynamic>;
+        
+        // التأكد من وجود الحقول الأساسية
+        if (data['id'] == null) {
+          data['id'] = widget.requestId;
+        }
+        if (data['type'] == null) {
+          // محاولة تحديد النوع من البيانات المتاحة
+          if (data['advance_data'] != null) {
+            data['type'] = 'advance';
+          } else if (data['invoice_data'] != null) {
+            data['type'] = 'invoice';
+          } else if (data['car_wash_data'] != null || data['vehicle_id'] != null) {
+            data['type'] = 'car_wash';
+          } else if (data['inspection_type'] != null || data['images'] != null) {
+            data['type'] = 'car_inspection';
+          } else {
+            data['type'] = 'unknown';
+          }
+        }
+        
+        setState(() {
+          _requestData = data;
+          _isLoading = false;
+        });
+        return;
+      }
+      
+      // إذا فشلت الدالة العامة، جرب الدوال المتخصصة
       Map<String, dynamic>? result;
       
       // محاولة جلب كطلب غسيل
       result = await RequestsApiService.getCarWashRequestDetails(widget.requestId);
-      if (result['success'] == true) {
+      if (result['success'] == true && result['data'] != null) {
         final data = result['data'] as Map<String, dynamic>;
         // إضافة type للتوافق مع الكود الحالي
         data['type'] = 'car_wash';
+        if (data['id'] == null) {
+          data['id'] = widget.requestId;
+        }
         setState(() {
           _requestData = data;
           _isLoading = false;
@@ -53,10 +89,13 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
       final carWashError = result['error'] as String?;
       if (carWashError != 'not_found' && carWashError != 'method_not_allowed') {
         result = await RequestsApiService.getCarInspectionRequestDetails(widget.requestId);
-        if (result['success'] == true) {
+        if (result['success'] == true && result['data'] != null) {
           final data = result['data'] as Map<String, dynamic>;
           // إضافة type للتوافق مع الكود الحالي
           data['type'] = 'car_inspection';
+          if (data['id'] == null) {
+            data['id'] = widget.requestId;
+          }
           setState(() {
             _requestData = data;
             _isLoading = false;
@@ -65,22 +104,18 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
         }
       }
       
-      // إذا فشلت المحاولات المتخصصة، استخدم الدالة العامة
-      final generalResult = await RequestsApiService.getRequestDetails(widget.requestId);
-      if (generalResult['success'] == true) {
-        setState(() {
-          _requestData = generalResult['data'] as Map<String, dynamic>;
-          _isLoading = false;
-        });
-      } else {
-        setState(() {
-          _error = generalResult['error'] as String? ?? 'فشل جلب التفاصيل';
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
+      // إذا فشلت جميع المحاولات
       setState(() {
-        _error = 'حدث خطأ: $e';
+        _error = (generalResult['error'] as String?) ?? 
+                 (result != null ? (result['error'] as String?) : null) ?? 
+                 'فشل جلب تفاصيل الطلب. يرجى المحاولة مرة أخرى.';
+        _isLoading = false;
+      });
+    } catch (e, stackTrace) {
+      debugPrint('❌ [RequestDetails] Error loading details: $e');
+      debugPrint('❌ [RequestDetails] Stack trace: $stackTrace');
+      setState(() {
+        _error = 'حدث خطأ أثناء جلب التفاصيل: ${e.toString()}';
         _isLoading = false;
       });
     }
@@ -195,9 +230,9 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
   }
 
   Widget _buildHeader() {
-    final type = _requestData!['type'] as String;
-    final status = _requestData!['status'] as String;
-    final requestId = _requestData!['id'] as int;
+    final type = _requestData!['type'] as String? ?? 'unknown';
+    final status = _requestData!['status'] as String? ?? 'pending';
+    final requestId = _requestData!['id'] as int? ?? widget.requestId;
 
     Color statusColor;
     switch (status) {
@@ -344,17 +379,19 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
             ],
           ),
           const SizedBox(height: 24),
-          _buildInfoRow(
-            Icons.calendar_today_rounded,
-            'تاريخ الإنشاء',
-            _formatDate(_requestData!['created_at']),
-          ),
-          const SizedBox(height: 16),
-          _buildInfoRow(
-            Icons.update_rounded,
-            'آخر تحديث',
-            _formatDate(_requestData!['updated_at']),
-          ),
+          if (_requestData!['created_at'] != null)
+            _buildInfoRow(
+              Icons.calendar_today_rounded,
+              'تاريخ الإنشاء',
+              _formatDate(_requestData!['created_at']),
+            ),
+          if (_requestData!['created_at'] != null) const SizedBox(height: 16),
+          if (_requestData!['updated_at'] != null)
+            _buildInfoRow(
+              Icons.update_rounded,
+              'آخر تحديث',
+              _formatDate(_requestData!['updated_at']),
+            ),
           if (_requestData!['admin_notes'] != null) ...[
             const SizedBox(height: 24),
             Container(
@@ -959,9 +996,68 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
                   scrollDirection: Axis.horizontal,
                   itemCount: mediaFiles.where((f) => f['type'] == 'image').length,
                   itemBuilder: (context, index) {
-                    final image = mediaFiles.firstWhere(
-                      (f) => f['type'] == 'image',
-                    );
+                    final imageFiles = mediaFiles.where((f) => f['type'] == 'image').toList();
+                    final image = imageFiles[index];
+                    
+                    // بناء URL الصورة من الحقول المتاحة
+                    String? imageUrl;
+                    
+                    // الأولوية 1: drive_view_url (رابط Google Drive)
+                    if (image['drive_view_url'] != null && 
+                        (image['drive_view_url'] as String).isNotEmpty) {
+                      imageUrl = image['drive_view_url'] as String;
+                    }
+                    // الأولوية 2: image_url (رابط مباشر)
+                    else if (image['image_url'] != null && 
+                             (image['image_url'] as String).isNotEmpty) {
+                      imageUrl = image['image_url'] as String;
+                    }
+                    // الأولوية 3: local_path (بناء المسار الكامل)
+                    else if (image['local_path'] != null && 
+                             (image['local_path'] as String).isNotEmpty) {
+                      final localPath = image['local_path'] as String;
+                      // إزالة "static/" أو "uploads/" من البداية إذا كانت موجودة
+                      final cleanPath = localPath.startsWith('static/') 
+                          ? localPath.substring(7)
+                          : localPath.startsWith('uploads/')
+                              ? localPath
+                              : 'uploads/$localPath';
+                      // بناء URL كامل
+                      imageUrl = '${ApiConfig.nuzumBaseUrl}/static/$cleanPath';
+                    }
+                    // الأولوية 4: url (الحقل القديم)
+                    else if (image['url'] != null && 
+                             (image['url'] as String).isNotEmpty) {
+                      imageUrl = image['url'] as String;
+                    }
+                    
+                    if (imageUrl == null || imageUrl.isEmpty) {
+                      return Container(
+                        margin: const EdgeInsets.only(left: 12),
+                        width: 150,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Colors.grey.withValues(alpha: 0.3),
+                            width: 2,
+                          ),
+                        ),
+                        child: const Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.image_not_supported, size: 32, color: Colors.grey),
+                              SizedBox(height: 8),
+                              Text(
+                                'لا توجد صورة',
+                                style: TextStyle(fontSize: 12, color: Colors.grey),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                    
                     return Container(
                       margin: const EdgeInsets.only(left: 12),
                       width: 150,
@@ -975,11 +1071,30 @@ class _RequestDetailsScreenState extends State<RequestDetailsScreen> {
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(16),
                         child: Image.network(
-                          image['url'] as String,
+                          imageUrl,
                           fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
                             return const Center(
-                              child: Icon(Icons.error_outline, size: 32),
+                              child: CircularProgressIndicator(),
+                            );
+                          },
+                          errorBuilder: (context, error, stackTrace) {
+                            debugPrint('❌ [RequestDetails] Failed to load image: $imageUrl');
+                            debugPrint('   Error: $error');
+                            return const Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.error_outline, size: 32, color: Colors.red),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'فشل تحميل الصورة',
+                                    style: TextStyle(fontSize: 10, color: Colors.red),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                              ),
                             );
                           },
                         ),
